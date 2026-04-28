@@ -211,7 +211,7 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 	mm := launcher.NewVersionManifestManager(manifestDir)
 	vm := launcher.NewVersionMetaManager(versionsDir, mm)
 
-	// 1. 拉取最新版本清单
+	// 0. 拉取最新版本清单 + 确定目标版本（断点恢复的版本从目标版本匹配）
 	manifest, err := mm.Fetch(30 * time.Minute)
 	if err != nil {
 		logger.Error("版本清单拉取失败: %v", err)
@@ -219,10 +219,6 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 		return
 	}
 
-	fmt.Printf("sync: 版本清单已同步 (%d 个版本)\n", len(manifest.Versions))
-	fmt.Printf("      最新 release: %s\n", manifest.Latest.Release)
-
-	// 2. 确定目标版本
 	mg := config.New(cfgDir)
 	serverCfg, err := mg.LoadServer()
 	var targetVersion string
@@ -230,20 +226,33 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 		targetVersion = serverCfg.Version.ID
 	} else {
 		targetVersion = manifest.Latest.Release
-		fmt.Printf("sync: 未指定版本，使用最新 release: %s\n", targetVersion)
 	}
 
 	logger.Info("sync: 目标版本 %s", targetVersion)
 
-	// 3. 下载 version.json（版本元数据）
-	fmt.Printf("\n=== 同步版本 %s ===\n", targetVersion)
+	fmt.Printf("sync: 版本清单 (%d 个版本), 目标 %s\n", len(manifest.Versions), targetVersion)
+
+	// 1. 尝试断点恢复：读取之前的 sync_state.json
+	state := launcher.LoadSyncState(cacheDir, targetVersion)
+	if state != nil {
+		if state.IsStale() {
+			logger.Info("sync 状态已过期(>1h)，从头开始")
+			state.Reset()
+		} else {
+			fmt.Printf("[*] 断点恢复: 已完成 %d 个阶段, 从断点继续\n", len(state.Completed))
+		}
+	} else {
+		state = launcher.NewSyncState(cacheDir, targetVersion)
+	}
 
 	if dryRun {
-		fmt.Printf("[DRY-RUN] 将下载 version.json + client.jar\n")
+		fmt.Printf("[DRY-RUN] 将同步版本 %s\n", targetVersion)
 		return
 	}
 
-	// 4. 获取版本元数据
+	fmt.Printf("\n=== 同步版本 %s ===\n", targetVersion)
+
+	// 获取版本元数据（阶段 3/4 共用）
 	meta, err := vm.Fetch(targetVersion)
 	if err != nil {
 		logger.Error("获取版本元数据失败: %v", err)
@@ -251,123 +260,181 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 		return
 	}
 
-	fmt.Printf("[✓] 版本元数据: %s (type=%s)\n", meta.ID, meta.Type)
-	fmt.Printf("    mainClass: %s\n", meta.MainClass)
-	fmt.Printf("    assets: %s\n", meta.Assets)
-
-	if meta.Downloads != nil && meta.Downloads.Client != nil {
-		fmt.Printf("    client.jar: %d MB (SHA1: %s)\n",
-			meta.Downloads.Client.Size/1024/1024,
-			meta.Downloads.Client.Sha1[:12]+"...")
+	// =============================================
+	// 4. 版本元数据
+	// =============================================
+	if !state.HasCompleted(launcher.PhaseVersionMeta) {
+		fmt.Printf("[✓] 版本元数据: %s (type=%s)\n", meta.ID, meta.Type)
+		fmt.Printf("    mainClass: %s\n", meta.MainClass)
+		fmt.Printf("    assets: %s\n", meta.Assets)
+		if meta.Downloads != nil && meta.Downloads.Client != nil {
+			fmt.Printf("    client.jar: %d MB (SHA1: %s)\n",
+				meta.Downloads.Client.Size/1024/1024,
+				meta.Downloads.Client.Sha1[:12]+"...")
+		}
+		state.MarkCompleted(launcher.PhaseVersionMeta)
+	} else {
+		fmt.Printf("[*] 跳过: 版本元数据已获取\n")
 	}
 
-	// 5. 下载 client.jar
-	jarPath, err := vm.DownloadClientJar(meta, jarDir)
-	if err != nil {
-		logger.Error("下载 client.jar 失败: %v", err)
-		fmt.Fprintf(os.Stderr, "sync: client.jar 下载失败: %v\n", err)
-		return
+	// =============================================
+	// 5. client.jar 下载
+	// =============================================
+	if !state.HasCompleted(launcher.PhaseClientJar) {
+
+		jarPath, err := vm.DownloadClientJar(meta, jarDir)
+		if err != nil {
+			logger.Error("下载 client.jar 失败: %v", err)
+			fmt.Fprintf(os.Stderr, "sync: client.jar 下载失败: %v\n", err)
+			return
+		}
+		fmt.Printf("[✓] client.jar: %s\n", jarPath)
+		state.MarkCompleted(launcher.PhaseClientJar)
+	} else {
+		fmt.Printf("[*] 跳过: client.jar 已下载\n")
 	}
 
-	fmt.Printf("[✓] client.jar: %s\n", jarPath)
-
+	// =============================================
 	// 6. Asset 索引同步
+	// =============================================
 	assetsDir := filepath.Join(cfgDir, "assets")
 	am := launcher.NewAssetManager(cacheDir, assetsDir, mm, vm)
 
-	assetIdx, err := am.FetchIndex(targetVersion)
-	if err != nil {
-		logger.Error("Asset 索引拉取失败: %v", err)
-		fmt.Fprintf(os.Stderr, "sync: Asset 索引拉取失败: %v\n", err)
-		return
-	}
-
-	stats := am.Statistics(assetIdx)
-	fmt.Printf("[✓] Asset 索引: %s (%d 个文件, 总计 %d MB, 平均 %.1f KB)\n",
-		meta.Assets, stats.TotalFiles, stats.TotalSize/1024/1024, stats.AvgSize/1024)
-
-	// 7. Asset 文件下载（并发，8 个 worker）
-	logger.Info("开始 Asset 文件下载 (8 workers)...")
-	assetFiles := am.ListObjects(assetIdx)
-	type assetResult struct {
-		downloaded int
-		skipped    int
-		failed     int
-	}
-	resultCh := make(chan assetResult, len(assetFiles))
-	sem := make(chan struct{}, 8)
-	// 并发下载 Asset 文件，使用 worker pool 模式：
-	//   - sem (channel) 作为信号量，同时最多 8 个 goroutine 持有 slot
-	//   - resultCh 收集每个文件的结果（下载/跳过/失败）
-	//   - 主 goroutine 通过 for-range resultCh 等待所有任务完成并汇总
-	// 选择 8 并发是因为:
-	//   - BMCLAPI 镜像对并发连接数有一定容忍度
-	//   - 太多并发可能导致本机文件系统 I/O 瓶颈
-	//   - 4746 个文件逐一下载太慢（约 30min），8 并发可压到 ~5min
-
-	for _, obj := range assetFiles {
-		go func(vpath, hash string) {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			localPath := am.AssetObjectPath(hash)
-			if _, err := os.Stat(localPath); err == nil {
-				resultCh <- assetResult{skipped: 1}
-				return
-			}
-			if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
-				logger.Warn("创建 Asset 目录失败: %v", err)
-				resultCh <- assetResult{failed: 1}
-				return
-			}
-			if err := am.DownloadFile(hash, localPath); err != nil {
-				logger.Warn("下载 Asset 失败: %s (%v)", vpath, err)
-				resultCh <- assetResult{failed: 1}
-				return
-			}
-			resultCh <- assetResult{downloaded: 1}
-		}(obj.VirtualPath, obj.Hash)
-	}
-
-	var totalDownloaded, totalSkipped, totalFailed int
-	for i := 0; i < len(assetFiles); i++ {
-		r := <-resultCh
-		totalDownloaded += r.downloaded
-		totalSkipped += r.skipped
-		totalFailed += r.failed
-	}
-	fmt.Printf("[✓] Asset 文件: %d 下载, %d 已存在, %d 失败\n", totalDownloaded, totalSkipped, totalFailed)
-
-	// 8. Libraries 下载（解析 → 下载分离，参考 PCL 的 McLibToken 模式）
-	libraryDir := filepath.Join(cfgDir, "libraries")
-	nativesDir := filepath.Join(cfgDir, "versions", targetVersion, "natives")
-	lm := launcher.NewLibraryManager(libraryDir, nativesDir)
-
-	fmt.Printf("\n=== 同步 Libraries ===\n")
-	resolvedLibs, err := vm.ResolveLibraries(meta, filepath.Join(cfgDir, "versions"))
-	if err != nil {
-		logger.Error("解析 Libraries 失败: %v", err)
-		fmt.Fprintf(os.Stderr, "sync: Libraries 解析失败: %v\n", err)
-	} else if len(resolvedLibs) > 0 {
-		// Step 1: 解析为统一的 LibraryFile 列表
-		libFiles := lm.ResolveToFiles(resolvedLibs)
-		fmt.Printf("Libraries 条目: %d（解析为 %d 个文件，含继承版本）\n", len(resolvedLibs), len(libFiles))
-
-		// Step 2: 批量下载
-		downloaded, skipped, failed := lm.DownloadFiles(libFiles)
-		fmt.Printf("[✓] Libraries 下载: %d 下载, %d 已存在, %d 失败\n", downloaded, skipped, failed)
-
-		// Step 3: 提取 natives
-		extracted, extractErrs := lm.ExtractNativesFromFiles(libFiles)
-		if len(extractErrs) > 0 {
-			for _, e := range extractErrs {
-				logger.Warn("natives 解压错误: %v", e)
-			}
+	if !state.HasCompleted(launcher.PhaseAssetIndex) {
+		assetIdx, err := am.FetchIndex(targetVersion)
+		if err != nil {
+			logger.Error("Asset 索引拉取失败: %v", err)
+			fmt.Fprintf(os.Stderr, "sync: Asset 索引拉取失败: %v\n", err)
+			return
 		}
-		fmt.Printf("[✓] Natives 解压: %d 完成, %d 错误\n", extracted, len(extractErrs))
+
+		stats := am.Statistics(assetIdx)
+		fmt.Printf("[✓] Asset 索引: %s (%d 个文件, 总计 %d MB, 平均 %.1f KB)\n",
+			meta.Assets, stats.TotalFiles, stats.TotalSize/1024/1024, stats.AvgSize/1024)
+		state.MarkCompleted(launcher.PhaseAssetIndex)
 	} else {
-		fmt.Println("[!] 该版本没有 Libraries 信息")
+		fmt.Printf("[*] 跳过: Asset 索引已同步\n")
 	}
+
+	// =============================================
+	// 7. Asset 文件下载（并发，8 个 worker）
+	// =============================================
+	if !state.HasCompleted(launcher.PhaseAssetFiles) {
+		assetIdx, err := am.FetchIndex(targetVersion)
+		if err != nil {
+			logger.Error("Asset 索引拉取失败(阶段4): %v", err)
+			fmt.Fprintf(os.Stderr, "sync: Asset 索引拉取失败: %v\n", err)
+			return
+		}
+
+		assetFiles := am.ListObjects(assetIdx)
+		logger.Info("开始 Asset 文件下载 (8 workers, %d 个文件)...", len(assetFiles))
+
+		type assetResult struct {
+			downloaded int
+			skipped    int
+			failed     int
+		}
+		resultCh := make(chan assetResult, len(assetFiles))
+		sem := make(chan struct{}, 8)
+		// 并发下载 Asset 文件，使用 worker pool 模式：
+		//   - sem (channel) 作为信号量，同时最多 8 个 goroutine 持有 slot
+		//   - resultCh 收集每个文件的结果
+		// 选择 8 并发:
+		//   - BMCLAPI 镜像对并发连接数有一定容忍度
+		//   - 太多并发可能导致本机文件系统 I/O 瓶颈
+		//   - 4746 个文件逐一下载太慢（~30min），8 并发可压到 ~5min
+
+		for _, obj := range assetFiles {
+			go func(vpath, hash string) {
+				sem <- struct{}{}
+				defer func() { <-sem }()
+
+				localPath := am.AssetObjectPath(hash)
+				if _, err := os.Stat(localPath); err == nil {
+					resultCh <- assetResult{skipped: 1}
+					return
+				}
+				if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
+					logger.Warn("创建 Asset 目录失败: %v", err)
+					resultCh <- assetResult{failed: 1}
+					return
+				}
+				if err := am.DownloadFile(hash, localPath); err != nil {
+					logger.Warn("下载 Asset 失败: %s (%v)", vpath, err)
+					resultCh <- assetResult{failed: 1}
+					return
+				}
+				resultCh <- assetResult{downloaded: 1}
+			}(obj.VirtualPath, obj.Hash)
+		}
+
+		var totalDownloaded, totalSkipped, totalFailed int
+		for i := 0; i < len(assetFiles); i++ {
+			r := <-resultCh
+			totalDownloaded += r.downloaded
+			totalSkipped += r.skipped
+			totalFailed += r.failed
+		}
+		fmt.Printf("[✓] Asset 文件: %d 下载, %d 已存在, %d 失败\n", totalDownloaded, totalSkipped, totalFailed)
+
+		state.SetAssetCount(totalDownloaded)
+		state.MarkCompleted(launcher.PhaseAssetFiles)
+	} else {
+		fmt.Printf("[*] 跳过: Asset 文件已下载\n")
+	}
+
+	// =============================================
+	// 8. Libraries 下载（解析 → 下载分离）
+	// =============================================
+	if !state.HasCompleted(launcher.PhaseLibraries) || !state.HasCompleted(launcher.PhaseNatives) {
+		libraryDir := filepath.Join(cfgDir, "libraries")
+		nativesDir := filepath.Join(cfgDir, "versions", targetVersion, "natives")
+		lm := launcher.NewLibraryManager(libraryDir, nativesDir)
+
+		fmt.Printf("\n=== 同步 Libraries ===\n")
+		resolvedLibs, err := vm.ResolveLibraries(meta, filepath.Join(cfgDir, "versions"))
+		if err != nil {
+			logger.Error("解析 Libraries 失败: %v", err)
+			fmt.Fprintf(os.Stderr, "sync: Libraries 解析失败: %v\n", err)
+		} else if len(resolvedLibs) > 0 {
+			libFiles := lm.ResolveToFiles(resolvedLibs)
+			fmt.Printf("Libraries 条目: %d（解析为 %d 个文件）\n", len(resolvedLibs), len(libFiles))
+
+			// 不跳过已完成的阶段，因为 Libraries 和 Natives 之间有关联
+			if !state.HasCompleted(launcher.PhaseLibraries) {
+				downloaded, skipped, failed := lm.DownloadFiles(libFiles)
+				fmt.Printf("[✓] Libraries 下载: %d 下载, %d 已存在, %d 失败\n", downloaded, skipped, failed)
+				state.SetLibraryCount(downloaded)
+				state.MarkCompleted(launcher.PhaseLibraries)
+			} else {
+				fmt.Printf("[*] 跳过: Libraries 已下载\n")
+			}
+
+			if !state.HasCompleted(launcher.PhaseNatives) {
+				extracted, extractErrs := lm.ExtractNativesFromFiles(libFiles)
+				if len(extractErrs) > 0 {
+					for _, e := range extractErrs {
+						logger.Warn("natives 解压错误: %v", e)
+					}
+				}
+				fmt.Printf("[✓] Natives 解压: %d 完成, %d 错误\n", extracted, len(extractErrs))
+				state.MarkCompleted(launcher.PhaseNatives)
+			} else {
+				fmt.Printf("[*] 跳过: Natives 已解压\n")
+			}
+		} else {
+			fmt.Println("[!] 该版本没有 Libraries 信息")
+			state.MarkCompleted(launcher.PhaseLibraries)
+			state.MarkCompleted(launcher.PhaseNatives)
+		}
+	} else {
+		fmt.Printf("[*] 跳过: Libraries 和 Natives 已完成\n")
+	}
+
+	// 标记全部完成并清理状态文件
+	state.MarkCompleted(launcher.PhaseComplete)
+	state.Remove()
 
 	logger.Info("sync: 完成")
 	fmt.Printf("\nsync: 完成\n")
