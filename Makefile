@@ -1,19 +1,27 @@
-.PHONY: build build-all clean test
+.PHONY: build build-release clean test
 
 APP = starter
 BUILD_DIR = build
+VERSION = $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
 build:
-	go build -o $(BUILD_DIR)/$(APP) ./cmd/starter/
+	go build -ldflags="-s -w -X main.version=$(VERSION)" -o $(BUILD_DIR)/$(APP).exe ./cmd/starter/
 
-build-all:
-	GOOS=windows GOARCH=amd64 go build -o $(BUILD_DIR)/$(APP)-windows-amd64.exe ./cmd/starter/
-	GOOS=linux GOARCH=amd64 go build -o $(BUILD_DIR)/$(APP)-linux-amd64 ./cmd/starter/
-	GOOS=darwin GOARCH=amd64 go build -o $(BUILD_DIR)/$(APP)-darwin-amd64 ./cmd/starter/
-	GOOS=darwin GOARCH=arm64 go build -o $(BUILD_DIR)/$(APP)-darwin-arm64 ./cmd/starter/
+build-release:
+	GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.version=$(VERSION) -H windowsgui" -o $(BUILD_DIR)/$(APP)-$(VERSION)-x64.exe ./cmd/starter/
 
 test:
-	go test ./... -v
+	go test ./... -v -count=1
+
+bench:
+	go test ./... -bench=. -benchmem
 
 clean:
 	rm -rf $(BUILD_DIR)/
+
+size: build
+	@echo "binary size:"
+	@ls -lh $(BUILD_DIR)/$(APP).exe
+	@echo ""
+	@echo "if upx is available:"
+	@which upx 2>/dev/null && upx --best $(BUILD_DIR)/$(APP).exe && ls -lh $(BUILD_DIR)/$(APP).exe || echo "upx not installed, skipping"

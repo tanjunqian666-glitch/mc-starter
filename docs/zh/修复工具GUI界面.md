@@ -63,7 +63,7 @@ func updateTrayIcon(status int) {
 
 ### 2.3 实现方案
 
-使用 `getlantern/systray` 库，纯 Go，跨平台，但对 Linux/macOS 只提供托盘基础功能，Windows 上体验最佳。
+使用 `getlantern/systray` 库，纯 Go，跨平台，（Windows 原生托盘）
 
 ---
 

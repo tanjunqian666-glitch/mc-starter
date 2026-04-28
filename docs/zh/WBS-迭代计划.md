@@ -136,7 +136,7 @@ P3 Java检测 (1d)          →  P4 启动器兼容 (3d)   →  P5 自更新 (2d
 |---|---|---|---|---|
 | P5.1 | 更新检查：remote version.json + semver 比较 + 状态文件 | 3h | P0.3 | internal/selfupdate/check.go |
 | P5.2 | 下载与校验：下载 + hash 校验 + 签名校验 + 断点续传 | 3h | P0.5, P5.1 | internal/selfupdate/download.go |
-| P5.3 | 替换与重启：Windows bat 脚本 + Linux 直接替换 | 4h | P5.2 | internal/selfupdate/apply.go |
+| P5.3 | 替换与重启：Windows bat 脚本 | 4h | P5.2 | internal/selfupdate/apply.go |
 | P5.4 | 回滚：自动回滚（10秒启动检测）+ 手动回滚 + 历史记录 | 3h | P5.3 | internal/selfupdate/rollback.go |
 | P5.5 | 多通道：stable/beta/dev + 通道端点 + 通道切换验证 | 2h | P5.1 | internal/selfupdate/channel.go |
 | P5.6 | 交互通知：静默后台下载 + 启动时询问 + 更新日志展示 | 2h | P5.3 | internal/selfupdate/notify.go |

@@ -1,259 +1,194 @@
-# MC 版本更新器 — 构建脚本 + CI 配置
+# MC-Starter — 构建与 CI
 
-> Go 项目，三平台编译
+> Windows only build pipeline
 
 ---
 
-## 一、Makefile
+## 一、本地构建
 
-```makefile
-# === 变量 ===
-BINARY_NAME    = mc-starter
-VERSION       ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-COMMIT        ?= $(shell git log -1 --format=%h 2>/dev/null || echo "unknown")
-BUILD_TIME    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-LDFLAGS        = -ldflags="-X main.Version=$(VERSION) -X main.Commit=$(COMMIT) -X main.BuildTime=$(BUILD_TIME) -s -w"
-OUTPUT_DIR     = build
+### 1.1 前置要求
 
-# === 默认目标 ===
-.PHONY: all build test clean
+- Go 1.22+
+- Git
+- GNU Make（可选）
 
-all: build
+### 1.2 构建命令
 
-# === 构建 ===
-build:
-	@mkdir -p $(OUTPUT_DIR)
-	go build $(LDFLAGS) -o $(OUTPUT_DIR)/$(BINARY_NAME) ./cmd/starter/
-	@echo "✅  Built: $(OUTPUT_DIR)/$(BINARY_NAME)"
+```bash
+# 开发构建 （带控制台窗口，方便调试）
+make build
 
-build-windows:
-	@mkdir -p $(OUTPUT_DIR)
-	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(OUTPUT_DIR)/$(BINARY_NAME)-windows-amd64.exe ./cmd/starter/
-	@echo "✅  Built: $(OUTPUT_DIR)/$(BINARY_NAME)-windows-amd64.exe"
+# 发布构建 （无控制台窗口，双击运行）
+make build-release
 
-build-linux:
-	@mkdir -p $(OUTPUT_DIR)
-	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(OUTPUT_DIR)/$(BINARY_NAME)-linux-amd64 ./cmd/starter/
-	@echo "✅  Built: $(OUTPUT_DIR)/$(BINARY_NAME)-linux-amd64"
+# 查看二进制体积
+make size
 
-build-darwin:
-	@mkdir -p $(OUTPUT_DIR)
-	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(OUTPUT_DIR)/$(BINARY_NAME)-darwin-amd64 ./cmd/starter/
-	@echo "✅  Built: $(OUTPUT_DIR)/$(BINARY_NAME)-darwin-amd64"
+# 运行测试
+make test
+```
 
-# 三平台全量编译
-build-all: build-windows build-linux build-darwin
-	@echo "✅  All builds complete"
+### 1.3 直接使用 Go
 
-# === 测试 ===
-test:
-	go test -v -race -count=1 ./... 2>&1 | tee test-output.log
+```bash
+# 开发版
+go build -ldflags="-s -w -X main.version=dev" -o build/starter.exe ./cmd/starter/
 
-test-short:
-	go test -short -count=1 ./...
+# 发布版（隐藏控制台窗口）
+GOOS=windows GOARCH=amd64 go build \
+    -ldflags="-s -w -X main.version=1.0.0 -H windowsgui" \
+    -o build/starter-1.0.0-x64.exe \
+    ./cmd/starter/
+```
 
-test-coverage:
-	go test -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
-	@echo "✅  Coverage report: coverage.html"
+### 1.4 手动压缩
 
-# === 代码质量 ===
-lint:
-	golangci-lint run ./...
+```bash
+# 安装 UPX（可选）
+scoop install upx   # Windows
+apt install upx     # WSL
 
-fmt:
-	go fmt ./...
-
-vet:
-	go vet ./...
-
-# === 清理 ===
-clean:
-	rm -rf $(OUTPUT_DIR)/
-	rm -f coverage.out coverage.html test-output.log
-	@echo "✅  Cleaned"
-
-# === 开发辅助 ===
-run:
-	go run ./cmd/starter/ $(ARGS)
-
-dev: build
-	./$(OUTPUT_DIR)/$(BINARY_NAME) $(ARGS)
-
-# === 发布 ===
-release: test build-all
-	@echo "📦  Release $(VERSION) ready in $(OUTPUT_DIR)/"
-	@ls -lh $(OUTPUT_DIR)/
-
-# === Docker 开发环境 ===
-docker-build:
-	docker build -t mc-starter-builder -f Dockerfile.build .
-	docker run --rm -v $(PWD):/workspace mc-starter-builder make build-all
-
-Dockerfile.build:
-	@echo "FROM golang:1.22-alpine" > Dockerfile.build
-	@echo "RUN apk add --no-cache git make" >> Dockerfile.build
-	@echo "WORKDIR /workspace" >> Dockerfile.build
-	@echo "CMD [\"make\", \"build-all\"]" >> Dockerfile.build
-
-.PHONY: build build-windows build-linux build-darwin build-all test test-short test-coverage
-.PHONY: lint fmt vet clean run dev release docker-build
+# 压缩
+upx --best build/starter.exe
+# 典型压缩比: 6MB → 2MB
 ```
 
 ---
 
-## 二、GitHub Actions CI
+## 二、Makefile 参考
+
+```makefile
+APP = starter
+BUILD_DIR = build
+VERSION = $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+
+build:
+	go build -ldflags="-s -w -X main.version=$(VERSION)" \
+	  -o $(BUILD_DIR)/$(APP).exe ./cmd/starter/
+
+build-release:
+	GOOS=windows GOARCH=amd64 go build \
+	  -ldflags="-s -w -X main.version=$(VERSION) -H windowsgui" \
+	  -o $(BUILD_DIR)/$(APP)-$(VERSION)-x64.exe ./cmd/starter/
+
+test:
+	go test ./... -v -count=1
+
+clean:
+	rm -rf $(BUILD_DIR)/
+```
+
+---
+
+## 三、持续集成
+
+### 3.1 自动化发布流程
+
+```
+ push: main / tag v*
+   ↓
+ 单元测试 → 构建二进制 → UPX 压缩 → 生成 checksum → 发布 artifacts
+```
+
+### 3.2 依赖更新管理（Dependabot）
+
+在 `.github/dependabot.yml` 配置：
 
 ```yaml
-# .github/workflows/ci.yml
+version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore"
+      prefix-development: "chore"
+```
 
-name: Build & Test
+---
 
+## 四、CI 配置参考
+
+### GitHub Actions (`.github/workflows/build.yml`)
+
+```yaml
+name: build
 on:
   push:
-    branches: [main, dev]
-    tags: [v*]
+    branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
-
-      - name: Lint
-        uses: golangci/golangci-lint-action@v4
+          cache: true
 
       - name: Test
-        run: go test -v -race -count=1 ./...
+        run: go test ./... -v -count=1
 
       - name: Build
-        run: go build -ldflags="-s -w" -o mc-starter ./cmd/starter/
+        run: |
+          $version = if ("${{ github.ref }}" -match "^refs/tags/v") { "${{ github.ref_name }}" } else { "dev" }
+          go build -ldflags="-s -w -X main.version=$version -H windowsgui" `
+            -o build/starter-$version-x64.exe `
+            ./cmd/starter/
+
+      - name: Sign （optional, 需要证书）
+        run: |
+          # signtool sign /fd SHA256 /a build/*.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mc-starter
+          path: build/
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test]
+    needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/download-artifact@v4
         with:
-          go-version: "1.22"
+          name: mc-starter
 
-      - name: Cross compile
-        run: |
-          mkdir -p dist
-          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/mc-starter-windows-amd64.exe ./cmd/starter/
-          GOOS=linux   GOARCH=amd64 go build -ldflags="-s -w" -o dist/mc-starter-linux-amd64   ./cmd/starter/
-          GOOS=darwin  GOARCH=amd64 go build -ldflags="-s -w" -o dist/mc-starter-darwin-amd64  ./cmd/starter/
-          cd dist
-          sha256sum * > checksums.txt
+      - name: Generate checksum
+        run: sha256sum *.exe > checksums.txt
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: |
+            *.exe
+            checksums.txt
           generate_release_notes: true
 ```
 
 ---
 
-## 三、版本号管理
+## 五、发布流程
 
-### 方案：语义化版本 + git tag
-
-```
-v1.0.0         ← 正式发布
-v1.1.0-beta    ← beta 通道
-v1.1.0-alpha   ← dev 通道
-```
-
-### Go 代码中注入版本号
-
-```go
-// cmd/starter/main.go
-package main
-
-var (
-    Version   = "dev"
-    Commit    = "unknown"
-    BuildTime = "unknown"
-)
-
-func main() {
-    rootCmd := &cobra.Command{
-        Use: "mc-starter",
-        // ...
-    }
-
-    versionCmd := &cobra.Command{
-        Use: "version",
-        Run: func(cmd *cobra.Command, args []string) {
-            fmt.Printf("mc-starter %s\n", Version)
-            fmt.Printf("Commit: %s\n", Commit)
-            fmt.Printf("Built:  %s\n", BuildTime)
-        },
-    }
-}
-```
-
-### 发布流程
-
-```bash
-# 1. 打 tag
-git tag -a v1.0.0 -m "v1.0.0: 正式发布"
-
-# 2. 推送 tag（触发 CI release）
-git push origin v1.0.0
-
-# 3. CI 自动编译 + 创建 GitHub Release
-```
+1. 打 tag: `git tag v1.0.0 && git push origin v1.0.0`
+2. CI 自动构建 → 压缩 → 生成 checksum → 创建 Release
+3. 用户去 GitHub Releases 下载 `.exe` 文件
+4. 自更新通道检测到新版本，自动拉取替换
 
 ---
 
-## 四、开发环境要求
+## 六、相关文档
 
-```bash
-# 必须
-Go 1.22+
-Git
-
-# 可选
-golangci-lint    # 代码检查：go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-goreleaser       # Release 自动化（后续再看需不需要）
-Docker           # 可选的构建环境
-```
-
----
-
-## 五、快速上手
-
-```bash
-# 克隆
-git clone https://github.com/你的名字/mc-starter.git
-cd mc-starter
-
-# 开发
-make dev ARGS="--help"
-make dev ARGS="init"
-
-# 测试
-make test
-
-# 全平台编译
-make build-all
-# → build/ 目录下三个平台的可执行文件
-
-# 发布
-git tag v0.1.0
-git push origin v0.1.0
-# → CI 自动编译 + 发布 Release
-```
+| 文档 | 说明 |
+|---|---|
+| [详细开发流程](详细开发流程.md) | 分阶段开发、验收标准 |
+| [WBS 迭代计划](WBS-迭代计划.md) | 开发排期 |
+| [自更新方案](自更新方案.md) | 启动器自身更新机制 |

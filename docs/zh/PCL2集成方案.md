@@ -624,7 +624,7 @@ func pickFolderDialogSimple(title string) (string, bool) {
     return path, true
 }
 
-// 如果没有窗口环境（headless / Linux），回退到命令行输入
+// 无终端时回退到命令行输入
 func pickFolderFallback(title string) (string, bool) {
     fmt.Printf("\n[?] %s\n", title)
     fmt.Print("    > ")
