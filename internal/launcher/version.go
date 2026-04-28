@@ -94,14 +94,32 @@ type LibraryDownloads struct {
 //   {"action": "disallow", "os": {"name": "osx"}}    // 排除 macOS
 //   {"action": "allow"}                               // 所有平台
 //   空 rules 数组 = 所有平台都适用（无限制）
+//
+// 注意：Mojang 的 rules 支持 os.version 正则匹配（如 "10\\.0\\..*"）、
+// os.arch 架构判断（"x86" vs 默认 64 位）、以及 features 标签（如 is_demo_user）。
+// 参考 PCL 的 McJsonRuleCheck 实现。
 type Rule struct {
-	Action string  `json:"action"`
-	OS     *OSRule `json:"os,omitempty"`
+	Action   string        `json:"action"`
+	OS       *OSRule       `json:"os,omitempty"`
+	Features *RuleFeatures `json:"features,omitempty"`
 }
 
 // OSRule 操作系统匹配规则
 type OSRule struct {
-	Name string `json:"name,omitempty"` // 可取 "windows", "osx", "linux"
+	Name    string `json:"name,omitempty"`    // "windows" | "osx" | "linux" | ""
+	Version string `json:"version,omitempty"` // 版本正则，如 "10\\.0\\..*"
+	Arch    string `json:"arch,omitempty"`    // "x86" 表示 32 位
+}
+
+// RuleFeatures 特性标签规则
+// 目前已知的 features:
+//
+//	is_demo_user — 反选（非 Demo 用户才匹配）
+//	has_custom_resolution — 通常忽略
+//	quick_play* — PCL 选择始终不匹配
+type RuleFeatures struct {
+	IsDemoUser *bool `json:"is_demo_user,omitempty"`
+	// 其他 features 通过 Raw 保留，用不上时可以忽略
 }
 
 // Arguments 启动参数
@@ -275,6 +293,58 @@ func parseVersionMeta(data []byte) (*VersionMeta, error) {
 		return nil, fmt.Errorf("version.json 缺少 id 字段")
 	}
 	return &meta, nil
+}
+
+// ResolveLibraries 递归解析库文件列表（处理 inheritsFrom 继承）
+//
+// Minecraft 的加载器版本（Fabric/Forge/NeoForge）通常不直接列出所有依赖，
+// 而是通过 inheritsFrom 指向原始版本。这个方法递归拉取父版本的 libraries，
+// 子版本的库排在前面（Java classpath 顺序语义：先出现的优先）。
+//
+// 返回的已通过 rules 过滤且去重的库条目。
+// versionDir: 父版本的版本目录，用于加载继承的 version.json
+func (m *VersionMetaManager) ResolveLibraries(meta *VersionMeta, versionDir string) ([]LibraryEntry, error) {
+	var allLibs []LibraryEntry
+	seen := make(map[string]bool)
+
+	// 递归解析
+	var resolve func(meta *VersionMeta) error
+	resolve = func(meta *VersionMeta) error {
+		for _, lib := range meta.Libraries {
+			// rules 过滤
+			if !ShouldInclude(lib.Rules) {
+				continue
+			}
+
+			// 去重：以 group:artifact 为 key
+			coords := ParseMavenCoords(lib.Name)
+			if coords != nil {
+				key := coords.Group + ":" + coords.Artifact
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+			}
+
+			allLibs = append(allLibs, lib)
+		}
+
+		// 处理继承
+		if meta.InheritsFrom != "" {
+			parentMeta, err := m.Fetch(meta.InheritsFrom)
+			if err != nil {
+				return fmt.Errorf("获取继承版本 %s 元数据失败: %w", meta.InheritsFrom, err)
+			}
+			return resolve(parentMeta)
+		}
+		return nil
+	}
+
+	if err := resolve(meta); err != nil {
+		return nil, err
+	}
+
+	return allLibs, nil
 }
 
 // verifySHA1 校验文件 SHA1

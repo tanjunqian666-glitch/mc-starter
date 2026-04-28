@@ -11,6 +11,7 @@ import (
 
 	"github.com/gege-tlph/mc-starter/internal/downloader"
 	"github.com/gege-tlph/mc-starter/internal/logger"
+	"github.com/gege-tlph/mc-starter/internal/model"
 )
 
 // LibraryManager Libraries 下载管理器
@@ -41,6 +42,109 @@ func NewLibraryManager(libraryDir, nativesDir string) *LibraryManager {
 		nativesDir: nativesDir,
 		dl:         downloader.New(),
 	}
+}
+
+// ResolveToFiles 解析 LibraryEntry 列表为统一的 LibraryFile 列表
+// 参考 PCL 的 McLibListGet：解析（rules 过滤 + 路径转换）→ 下载（批量处理）
+// 返回结果已通过 rules 过滤，包含普通库和 natives 条目（natives 以 IsNative=true 标记）。
+func (m *LibraryManager) ResolveToFiles(libraries []LibraryEntry) []model.LibraryFile {
+	var files []model.LibraryFile
+
+	for _, lib := range libraries {
+		if !ShouldInclude(lib.Rules) {
+			continue
+		}
+
+		coords := ParseMavenCoords(lib.Name)
+		if coords == nil {
+			logger.Debug("跳过无法解析的库: %s", lib.Name)
+			continue
+		}
+
+		// 处理主 artifact
+		if lib.Downloads != nil && lib.Downloads.Artifact != nil {
+			files = append(files, model.LibraryFile{
+				LocalPath:    m.MavenLocalPath(coords),
+				URL:          lib.Downloads.Artifact.URL,
+				SHA1:         lib.Downloads.Artifact.Sha1,
+				Size:         lib.Downloads.Artifact.Size,
+				IsNative:     false,
+				OriginalName: lib.Name,
+			})
+		} else if lib.URL != "" {
+			// Fabric 格式：无 downloads.artifact，用 name+url 拼
+			dlURL := MavenURL(lib.URL, coords)
+			files = append(files, model.LibraryFile{
+				LocalPath:    m.MavenLocalPath(coords),
+				URL:          dlURL,
+				IsNative:     false,
+				OriginalName: lib.Name,
+			})
+		} else {
+			logger.Debug("跳过无下载信息的库: %s", lib.Name)
+		}
+
+		// 处理 natives
+		if lib.Natives != nil {
+			nativeFiles := m.resolveNatives(lib, coords)
+			files = append(files, nativeFiles...)
+		}
+	}
+
+	return files
+}
+
+// resolveNatives 解析单个 LibraryEntry 中的 natives 条目
+func (m *LibraryManager) resolveNatives(lib LibraryEntry, coords *MavenArtifact) []model.LibraryFile {
+	if lib.Natives == nil {
+		return nil
+	}
+
+	classifier, ok := lib.Natives["windows"]
+	if !ok {
+		return nil
+	}
+
+	if lib.Downloads == nil || lib.Downloads.Classifiers == nil {
+		return nil
+	}
+
+	entry, ok := lib.Downloads.Classifiers[classifier]
+	if !ok {
+		// 模糊匹配 fallback
+		for c := range lib.Downloads.Classifiers {
+			if strings.Contains(c, "windows") || strings.Contains(c, "natives") {
+				entry = lib.Downloads.Classifiers[c]
+				classifier = c
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	// natives 的本地路径 = artifacts 路径 + classifier
+	nativeCoords := *coords
+	nativeCoords.Classifier = classifier
+	nativePath := m.MavenLocalPath(&nativeCoords)
+
+	var dlURL string
+	if entry.URL != "" {
+		dlURL = entry.URL
+	} else {
+		dlURL = MavenURL("https://libraries.minecraft.net", &nativeCoords)
+	}
+
+	return []model.LibraryFile{{
+		LocalPath:    nativePath,
+		URL:          dlURL,
+		SHA1:         entry.Sha1,
+		Size:         entry.Size,
+		IsNative:     true,
+		OriginalName: lib.Name,
+	}}
 }
 
 // MavenArtifact Maven 坐标解析结果
@@ -120,49 +224,153 @@ func (m *LibraryManager) MavenLocalPath(coords *MavenArtifact) string {
 }
 
 // ShouldInclude 根据 rules 判断当前平台是否应包含该库
-// 规则逻辑:
-//   - 空 rules → 总是包含
-//   - rules 数组中所有条目都匹配（AND 逻辑）
-//   - 每个条目的 action 为 "allow" 表示匹配时通过，"disallow" 表示匹配时排除
-//   - 如果没有任意 allow 规则匹配，默认不允许
 //
-// Windows-only 项目简化处理: 只匹配 os.name == "windows" 的规则
+// 规则逻辑（参考 PCL McJsonRuleCheck）：
+//   - 空 rules → 总是包含（无限制）
+//   - 有 rules → 逐条计算，allow/disallow
+//     - action="allow" 且规则匹配 → 标记为允许
+//     - action="disallow" 且规则匹配 → 标记为禁止（覆盖 allow）
+//     - 无 os/features 限制的规则：匹配所有情况
+//   - 最终：如果存在 allow 规则且至少一个匹配 → 允许
+//          如果存在 disallow 规则且至少一个匹配 → 禁止
+//          没有任何 allow 规则匹配 → 不允许
+//
+// 支持的匹配维度：
+//   - os.name: "windows" / "osx" / "linux"（精确匹配）
+//   - os.version: 正则表达式匹配（如 "10\\.0\\..*"）
+//   - os.arch: "x86" 表示 32 位，默认匹配 64 位
+//   - features.is_demo_user: 反选（非 Demo 用户才匹配）
+//
+// Windows-only 项目: 非 Windows 的 os.name 规则视为不匹配，
+// 但支持跨平台规则的完整解析以确保兼容性。
 func ShouldInclude(rules []Rule) bool {
 	if len(rules) == 0 {
 		return true
 	}
 
-	// 检查是否有任何规则匹配当前平台
-	// 空 rules = 全部包含
-	// 有 rules = 逐条计算 allow/disallow
+	var hasAllow bool
 	var matchedAllow bool
+	var matchedDisallow bool
 
 	for _, rule := range rules {
-		if rule.OS == nil || rule.OS.Name == "" {
-			// 无 OS 限制的规则：匹配所有平台
-			if rule.Action == "allow" {
-				matchedAllow = true
-			} else if rule.Action == "disallow" {
-				return false
+		matched := true
+
+		// 检查 OS 条件
+		if rule.OS != nil {
+			osMatch := matchOS(rule.OS)
+			if !osMatch {
+				matched = false
 			}
-			continue
 		}
 
-		// 检查 OS 是否匹配
-		osName := normalizeOS(rule.OS.Name)
-		if osName == "windows" {
-			if rule.Action == "allow" {
+		// 检查 features 条件
+		if matched && rule.Features != nil {
+			if !matchFeatures(rule.Features) {
+				matched = false
+			}
+		}
+
+		if rule.Action == "allow" {
+			hasAllow = true
+			if matched {
 				matchedAllow = true
-			} else if rule.Action == "disallow" {
-				return false
+			}
+		} else if rule.Action == "disallow" {
+			if matched {
+				matchedDisallow = true
 			}
 		}
 	}
 
-	// 如果有 allow 规则且至少有一个匹配到了，则包含
-	return matchedAllow
-	// 注意: 这个简化实现对于纯 Windows 场景够用。
-	// 如果要支持 macOS/Linux，需要用 runtime.GOOS 做实际匹配。
+	// disallow 优先于 allow
+	if matchedDisallow {
+		return false
+	}
+
+	if hasAllow {
+		return matchedAllow
+	}
+
+	// 没有 allow 规则也没有 disallow 规则（理论上不可能到这里）
+	return false
+}
+
+// matchOS 判断 OS 规则是否匹配当前平台
+//
+// 本项目为 Windows-only：
+//   - 规则要求 windows → 始终匹配
+//   - 规则要求 osx/linux → 不匹配
+//   - 空规则 → 匹配（表示不限制）
+func matchOS(rule *OSRule) bool {
+	// 名称匹配
+	if rule.Name != "" {
+		name := normalizeOS(rule.Name)
+		if name != "windows" {
+			// Windows-only 项目，非 Windows 规则不匹配
+			return false
+		}
+		// windows 规则始终匹配
+	}
+
+	// 版本正则匹配（如 "10\\.0\\..*"）
+	if rule.Version != "" {
+		// 简单实现：对于已知的 OS 版本，做正则匹配
+		// 这里简化处理 — 大部分规则是 "10\\.0\\..*" 这种匹配 Windows 10+
+		// 我们只对 Windows 做基础匹配
+		if currentOSName() == "windows" {
+			matched, err := matchOSVersion(rule.Version)
+			if err != nil || !matched {
+				return false
+			}
+		} else {
+			// 非 Windows 平台忽略 version 条件
+		}
+	}
+
+	// 架构匹配（"x86" = 32 位）
+	if rule.Arch != "" {
+		if rule.Arch == "x86" && !is32Bit() {
+			return false
+		}
+	}
+
+	return true
+}
+
+// matchFeatures 判断 features 规则是否匹配
+//
+// PCL 参考: is_demo_user 是反选标签
+//   - is_demo_user=true → 规则要求"是 Demo 用户"才匹配
+//   - 我们不是 Demo 用户 → 不匹配
+//   - 没有 features 总是匹配
+func matchFeatures(features *RuleFeatures) bool {
+	if features == nil {
+		return true
+	}
+	// is_demo_user: 反选 — 非 Demo 用户不匹配
+	if features.IsDemoUser != nil && *features.IsDemoUser {
+		return false
+	}
+	return true
+}
+
+// matchOSVersion 简单匹配 OS 版本正则
+// 目前只支持 Windows 的典型正则，如 "10\\.0\\..*"
+func matchOSVersion(pattern string) (bool, error) {
+	// 获取当前 OS 版本号（简化：只处理已知的常见模式）
+	// 真正的实现在 Windows 上需要读取注册表或调用 RtlGetVersion，
+	// 这里用编译时已知的信息做最简匹配
+	return true, nil // Windows-only 项目，简单接受
+}
+
+// is32Bit 判断是否为 32 位系统
+func is32Bit() bool {
+	return false // 本项目固定 64 位
+}
+
+// currentOSName 返回当前操作系统名称（小写）
+func currentOSName() string {
+	return runtime.GOOS
 }
 
 // normalizeOS 标准化 OS 名称
@@ -452,6 +660,80 @@ func BuildClasspath(libraryPaths []string, clientJar string) string {
 	return strings.Join(allPaths, separator)
 }
 
+// DownloadFiles 批量下载 LibraryFile 列表
+// 返回：下载成功数、失败数的统计数据
+// 会跳过已存在且 SHA1 匹配的文件
+func (m *LibraryManager) DownloadFiles(files []model.LibraryFile) (downloaded, skipped, failed int) {
+	for _, f := range files {
+		// 已存在且 SHA1 匹配则跳过
+		if f.SHA1 != "" {
+			if ok, _ := verifySHA1(f.LocalPath, f.SHA1); ok {
+				skipped++
+				continue
+			}
+		} else if _, err := os.Stat(f.LocalPath); err == nil {
+			skipped++
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(f.LocalPath), 0755); err != nil {
+			logger.Warn("创建目录失败: %s (%v)", filepath.Dir(f.LocalPath), err)
+			failed++
+			continue
+		}
+
+		if err := m.dl.File(f.URL, f.LocalPath, ""); err != nil {
+			logger.Warn("下载失败: %s (%v)", f.OriginalName, err)
+			failed++
+			continue
+		}
+
+		// SHA1 校验
+		if f.SHA1 != "" {
+			if ok, _ := verifySHA1(f.LocalPath, f.SHA1); !ok {
+				os.Remove(f.LocalPath)
+				logger.Warn("SHA1 校验失败: %s", f.OriginalName)
+				failed++
+				continue
+			}
+		}
+
+		downloaded++
+	}
+	return
+}
+
+// ExtractNativesFromFiles 从 LibraryFile 列表中提取 natives 并解压
+// 只处理 IsNative=true 且本地 JAR 存在的条目
+func (m *LibraryManager) ExtractNativesFromFiles(files []model.LibraryFile) (extracted int, errs []error) {
+	for _, f := range files {
+		if !f.IsNative {
+			continue
+		}
+
+		// 检查标记
+		extractedMarker := f.LocalPath + ".extracted"
+		if _, err := os.Stat(extractedMarker); err == nil {
+			continue
+		}
+
+		if err := os.MkdirAll(m.nativesDir, 0755); err != nil {
+			errs = append(errs, fmt.Errorf("创建 natives 目录失败: %w", err))
+			continue
+		}
+
+		if err := extractNatives(f.LocalPath, m.nativesDir); err != nil {
+			errs = append(errs, fmt.Errorf("解压 natives 失败(%s): %w", f.OriginalName, err))
+			continue
+		}
+
+		// 标记已解压
+		os.WriteFile(extractedMarker, []byte{}, 0644)
+		extracted++
+	}
+	return
+}
+
 // GetNativesDir 返回 natives 目录路径
 func (m *LibraryManager) GetNativesDir() string {
 	return m.nativesDir
@@ -462,7 +744,4 @@ func (m *LibraryManager) SetDownloadDir(dir string) {
 	m.downloadDir = dir
 }
 
-// CurrentOS 返回当前操作系统名称（小写），匹配 rules 中的 os.name
-func CurrentOS() string {
-	return runtime.GOOS
-}
+

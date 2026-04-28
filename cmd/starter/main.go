@@ -338,41 +338,33 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 	}
 	fmt.Printf("[✓] Asset 文件: %d 下载, %d 已存在, %d 失败\n", totalDownloaded, totalSkipped, totalFailed)
 
-	// 8. Libraries 下载
+	// 8. Libraries 下载（解析 → 下载分离，参考 PCL 的 McLibToken 模式）
 	libraryDir := filepath.Join(cfgDir, "libraries")
 	nativesDir := filepath.Join(cfgDir, "versions", targetVersion, "natives")
 	lm := launcher.NewLibraryManager(libraryDir, nativesDir)
 
-	if len(meta.Libraries) > 0 {
-		fmt.Printf("\n=== 同步 Libraries (%d 个) ===\n", len(meta.Libraries))
+	fmt.Printf("\n=== 同步 Libraries ===\n")
+	resolvedLibs, err := vm.ResolveLibraries(meta, filepath.Join(cfgDir, "versions"))
+	if err != nil {
+		logger.Error("解析 Libraries 失败: %v", err)
+		fmt.Fprintf(os.Stderr, "sync: Libraries 解析失败: %v\n", err)
+	} else if len(resolvedLibs) > 0 {
+		// Step 1: 解析为统一的 LibraryFile 列表
+		libFiles := lm.ResolveToFiles(resolvedLibs)
+		fmt.Printf("Libraries 条目: %d（解析为 %d 个文件，含继承版本）\n", len(resolvedLibs), len(libFiles))
 
-		var libSuccess, libFailed, nativesCount int
-		for _, lib := range meta.Libraries {
-			// 先检查 rules
-			if !launcher.ShouldInclude(lib.Rules) {
-				continue
-			}
+		// Step 2: 批量下载
+		downloaded, skipped, failed := lm.DownloadFiles(libFiles)
+		fmt.Printf("[✓] Libraries 下载: %d 下载, %d 已存在, %d 失败\n", downloaded, skipped, failed)
 
-			path, _, err := lm.DownloadLibrary(lib)
-			if err != nil {
-				logger.Warn("库下载失败: %s (%v)", lib.Name, err)
-				libFailed++
-				continue
-			}
-			if path != "" {
-				libSuccess++
-			}
-
-			// 下载并解压 natives
-			if lib.Natives != nil {
-				if err := lm.DownloadNatives(lib); err != nil {
-					logger.Warn("natives 下载/解压失败: %s (%v)", lib.Name, err)
-					continue
-				}
-				nativesCount++
+		// Step 3: 提取 natives
+		extracted, extractErrs := lm.ExtractNativesFromFiles(libFiles)
+		if len(extractErrs) > 0 {
+			for _, e := range extractErrs {
+				logger.Warn("natives 解压错误: %v", e)
 			}
 		}
-		fmt.Printf("[✓] Libraries: %d 下载, %d 失败, %d natives\n", libSuccess, libFailed, nativesCount)
+		fmt.Printf("[✓] Natives 解压: %d 完成, %d 错误\n", extracted, len(extractErrs))
 	} else {
 		fmt.Println("[!] 该版本没有 Libraries 信息")
 	}

@@ -69,6 +69,27 @@ func TestShouldInclude(t *testing.T) {
 		{"disallow windows", []Rule{{Action: "disallow", OS: &OSRule{Name: "windows"}}}, false},
 		{"allow linux", []Rule{{Action: "allow", OS: &OSRule{Name: "linux"}}}, false},
 		{"allow osx", []Rule{{Action: "allow", OS: &OSRule{Name: "osx"}}}, false},
+
+		// 增强测试：features 标签
+		{"allow + is_demo_user=true（仅允许 Demo 用户，我们不是）", []Rule{{Action: "allow", Features: &RuleFeatures{IsDemoUser: boolPtr(true)}}}, false},
+
+		// allow 和 disallow 组合
+		{"allow windows + allow osx", []Rule{
+			{Action: "allow", OS: &OSRule{Name: "windows"}},
+			{Action: "allow", OS: &OSRule{Name: "osx"}},
+		}, true},
+		{"allow all + disallow linux", []Rule{
+			{Action: "allow"},
+			{Action: "disallow", OS: &OSRule{Name: "linux"}},
+		}, true},
+		{"allow all + disallow windows", []Rule{
+			{Action: "allow"},
+			{Action: "disallow", OS: &OSRule{Name: "windows"}},
+		}, false},
+		{"allow windows + disallow all", []Rule{
+			{Action: "allow", OS: &OSRule{Name: "windows"}},
+			{Action: "disallow", OS: &OSRule{Name: "windows"}},
+		}, false}, // disallow 优先
 	}
 
 	for _, tt := range tests {
@@ -77,6 +98,10 @@ func TestShouldInclude(t *testing.T) {
 			t.Errorf("ShouldInclude(%s) = %v, want %v", tt.name, got, tt.want)
 		}
 	}
+}
+
+func boolPtr(b bool) *bool {
+	return &b
 }
 
 func TestMavenLocalPath(t *testing.T) {
