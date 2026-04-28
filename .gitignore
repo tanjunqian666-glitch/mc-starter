@@ -1,0 +1,42 @@
+# Binaries
+build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+starter
+
+# Test binaries
+*.test
+*.out
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Go
+vendor/
+go.work
+
+# MC data
+.minecraft/
+
+# Runtime
+*.log
+updater/cache/
+config/local.json
+
+# Env
+.env
+.env.local
+
+# Dependency
+go.sum
