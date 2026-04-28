@@ -1,145 +1,117 @@
 # MC-Starter
 
-轻量级 Minecraft 版本管理 + 整合包更新器。
+> Lightweight Minecraft version manager + modpack updater.
 
-> 不自带启动器、不捆绑代理、不占资源。只做一件事：**把指定版本的 Minecraft + 模组包下载配置好，打开 PCL2 就能玩。**
+No built-in launcher, no proxy bundled, no bloat. One job: **download and configure the right Minecraft version + modpack, so PCL2 (or your launcher of choice) just works.**
 
-## 快速开始
-
-### 最简单的方式（30 秒上手）
+## Quick Start (30 seconds)
 
 ```
-1. 把 starter.exe 扔到 PCL2.exe 旁边
-2. 把 config/server.json 也放旁边
-3. 双击 starter.exe
-   └→ 自动完成：搜索 PCL2 → 下载 MC → 安装 Fabric → 同步模组 → 更新 PCL.ini → 拉起 PCL2
-4. 在 PCL2 里点启动 → 开始玩
+1. Drop starter.exe next to PCL2.exe
+2. Drop config/server.json next to it
+3. Double-click starter.exe
+   └→ Auto-discovers PCL2 → downloads MC → installs Fabric → syncs mods → configures PCL.ini → launches PCL2
+4. Click Play in PCL2 → start gaming
 ```
 
-**全程只做一步：双击。**
+**It's a single double-click.**
 
-如果自动搜索不到 PCL2 或 .minecraft，程序会提示你手动选择文件夹。
+If auto-detection can't find PCL2 or .minecraft, the program will prompt you to select the folders manually.
 
-### 前提
+### Prerequisites
 
-- **Java 17+**（没有的话 `starter run` 会引导你下载）
+- **Java 17+** (if missing, `starter run` guides you through installation)
 
-### 命令参考
+## Commands
 
-| 命令 | 作用 |
+| Command | Description |
 |---|---|
-| `starter` / `starter run` | 全自动模式：检测→同步→集成→拉起 PCL2（最常用） |
-| `starter run --headless` | 静默模式，不交互 |
-| `starter init` | 初始化本地配置 |
-| `starter check` | 检查 Java / PCL2 / 配置完整性 |
-| `starter sync` | 仅同步，不拉 PCL2 |
-| `starter pcl detect` | 手动检测 PCL2.exe 位置 |
-| `starter pcl path <路径>` | 手动设置 PCL2 路径 |
-| `starter version` | 显示版本信息 |
-| `starter self-update` | 更新启动器自身 |
+| `starter` / `starter run` | Full auto mode: detect → sync → integrate → launch PCL2 |
+| `starter run --headless` | Silent mode, no interaction |
+| `starter init` | Initialize local configuration |
+| `starter check` | Check Java / PCL2 / config integrity |
+| `starter sync` | Sync version + mods only (no launcher launch) |
+| `starter pcl detect` | Auto-detect PCL2.exe location |
+| `starter pcl path <path>` | Manually set PCL2 path |
+| `starter version` | Show version info |
+| `starter self-update` | Update the starter itself |
 
-### 手动控制
+### Common Flags
 
-如果你不想开全自动模式，也可以分步执行：
-
-```bash
-# 1. 初始化配置
-starter init
-
-# 2. 检查环境
-starter check
-
-# 3. 同步版本+模组
-starter sync
-
-# 4. 手动启动 PCL2
-#（starter 已经帮你写好了 PCL.ini，打开 PCL2 就能看到新版本）
-```
-
-### 常用选项
-
-| 选项 | 作用 |
+| Flag | Description |
 |---|---|
-| `--config ./my-config` | 指定配置目录（默认 ./config） |
-| `--verbose` | 详细日志 |
-| `--headless` | 静默模式，不弹交互提示 |
-| `--dry-run` | 仅检查不下载 |
+| `--config ./my-config` | Config directory (default: `./config`) |
+| `--verbose` | Verbose logging |
+| `--headless` | Silent mode, no prompts |
+| `--dry-run` | Check only, no download |
 
-## 配置说明
-
-### server.json（服务端下发，不需要手动编辑）
+## Project Structure
 
 ```
-config/
-├── server.json     ← 自动更新，不要手动改
-└── local.json      ← 你可以编辑这个
-```
-
-**local.json** 可配置项：
-
-```json
-{
-  "install_path": "./.minecraft",     // MC 安装目录
-  "launcher": "bare",                  // bare / pcl2 / hmcl
-  "java_home": "",                     // Java 路径（留空自动检测）
-  "memory": 4096,                      // 分配内存 MB
-  "username": "Player",                // 离线用户名
-  "mirror_mode": "auto"                // auto / china / global
-}
-```
-
-## 文件结构
-
-```
-你的整合包目录/
-├── starter(.exe)          ← 主程序
-├── config/
-│   ├── server.json        ← 服务端配置（自动更新）
-│   └── local.json         ← 你的偏好设置
-├── updater/
-│   └── cache/             ← 下载缓存
-├── .minecraft/            ← Minecraft 目录
-│   ├── versions/
-│   ├── assets/
-│   ├── mods/
-│   └── ...
-├── starter.log            ← 日志
+mc-starter/
+├── cmd/
+│   └── starter/          ← entry point
+├── internal/
+│   ├── config/           ← config read/write
+│   ├── downloader/       ← HTTP download + SHA256 verify
+│   ├── logger/           ← leveled logging
+│   ├── mirror/           ← BMCLAPI mirror acceleration
+│   └── model/            ← shared types
+├── pkg/                  ← public reusable packages
+├── docs/
+│   ├── zh/               ← 中文文档
+│   └── ...               ← more docs
+├── scripts/              ← build & dev scripts
+├── Makefile
+├── go.mod
 └── README.md
 ```
 
-## 常见问题
+## Config
 
-**Q: 需要管理员权限吗？**
-不需要，除非你把 .minecraft 装在系统盘 Program Files 下。
+### server.json (auto-updated by server, do not edit manually)
+### local.json (you can edit this)
 
-**Q: 支持 Forge 吗？**
-支持。在 `server.json` 的 `loader.type` 填 `forge` 即可。
+Example `local.json`:
 
-**Q: 下载太慢怎么办？**
-starter 内置了国内镜像加速。你可以在 local.json 设置 `mirror_mode: "china"`。
+```json
+{
+  "install_path": "./.minecraft",
+  "launcher": "bare",
+  "java_home": "",
+  "memory": 4096,
+  "username": "Player",
+  "mirror_mode": "auto"
+}
+```
 
-**Q: 可以同时玩多个整合包吗？**
-可以。每个整合包放在不同目录，各自有独立的 starter + config + .minecraft。
-
-**Q: 怎么用 PCL2 / HMCL 启动？**
-sync 完成后会生成 `launcher_profiles.json`，PCL2 可以直接识别。
-或者设置 `local.json` 的 `launcher: "pcl2"` 让 starter 帮你配置。
-
-## 从源码构建
+## Build from Source
 
 ```bash
-git clone https://github.com/你的名字/mc-starter.git
+git clone https://github.com/tanjunqian666-glitch/mc-starter.git
 cd mc-starter
-make build
+make build         # build for current platform
+make build-all     # cross-compile: windows / linux / mac
 ```
 
-交叉编译：
+## FAQ
 
-```bash
-make build-all
-# → build/ 目录下 windows / linux / mac 三平台二进制
-```
+**Q: Does this need admin privileges?**
+No, unless .minecraft is under Program Files.
 
-## 许可证
+**Q: Does it support Forge?**
+Yes. Set `loader.type` to `"forge"` in server.json.
+
+**Q: Downloads are slow.**
+Built-in Chinese mirror acceleration. Set `mirror_mode: "china"` in local.json.
+
+**Q: Can I play multiple modpacks?**
+Yes. Each modpack in its own directory with its own starter + config.
+
+## License
 
 MIT
+
+---
+
+> [中文文档 →](docs/zh/README.md)
