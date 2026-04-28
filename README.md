@@ -1,77 +1,54 @@
 # MC-Starter
 
-> A small, fast Windows updater for Minecraft: download the right version + modpack, and PCL2 just works.
-
-No launcher, no proxy, no bloat. One job.
+> Minecraft 更新器。双击，等，玩。
 
 ## Quick Start
 
 ```
-1. Drop starter.exe next to PCL2.exe
-2. Drop config/server.json next to it
-3. Double-click starter.exe
-   └→ auto: find PCL2 → download MC → install Fabric → sync mods → update PCL.ini → launch PCL2
-4. Click Play
+1. 把 starter.exe 放到 PCL2.exe 旁边
+2. 把 config/server.json 放在一起
+3. 双击 starter.exe
+   └→ 自动: 找 PCL2 → 下 MC → 装 Fabric → 同步模组 → 配 PCL.ini → 启动 PCL2
+4. 点 Play
 ```
 
-**Just double-click and go.**
-
-### Prerequisites
+### 前提
 
 - Windows 10/11
-- Java 17+ (guided install if missing)
+- Java 17+（没有会引导安装）
 
 ## Commands
 
-| Command | Description |
+| 命令 | 描述 |
 |---|---|
-| `starter run` | Full auto: detect → sync → integrate → launch PCL2 |
-| `starter init` | Initialize local config |
-| `starter check` | Check Java / PCL2 / config integrity |
-| `starter sync` | Sync version + mods only |
-| `starter repair` | Interactive repair tool |
-| `starter pcl detect` | Find PCL2.exe |
-| `starter pcl path <path>` | Set PCL2 path manually |
-| `starter version` | Show version |
+| `starter run` | 全自动: 检测 → 同步 → 集成 → 启动 PCL2 |
+| `starter init` | 初始化本地配置 |
+| `starter check` | 检查 Java / PCL2 / 配置 |
+| `starter sync` | 仅同步版本 + 模组 |
+| `starter repair` | 修复工具 |
+| `starter pcl detect` | 查找 PCL2.exe |
+| `starter pcl path <path>` | 手动指定 PCL2 路径 |
+| `starter version` | 版本信息 |
 
 ### Flags
 
-`--config ./dir` config dir (default `./config`)
+`--config ./dir` 配置目录（默认 `./config`）
 `--verbose` / `--headless` / `--dry-run`
-
-## Project Structure
-
-```
-mc-starter/
-├── cmd/starter/       entry point
-├── internal/          private packages
-│   ├── config/        JSON config read/write
-│   ├── downloader/    HTTP download + SHA256 verify
-│   ├── logger/        leveled logging
-│   ├── mirror/        BMCLAPI mirror support
-│   └── model/         shared types
-├── pkg/               reusable packages
-├── docs/zh/           documentation (Chinese)
-├── scripts/           build scripts
-├── Makefile
-├── go.mod
-└── README.md
-```
 
 ## Build
 
 ```bash
 make build          # → build/starter.exe
-make build-release  # GUI mode, no console window, UPX stripped
-make size           # check binary size
+make build-release  # GUI 模式，无控制台窗口
+make size           # 查看二进制大小
 ```
 
-## Design Goals
+## 设计目标
 
-- **Tiny binary**: `-ldflags="-s -w"`, optional UPX, zero-fat deps
-- **Low memory**: no busy loops, no polling, no hidden browser engine
-- **Fast startup**: ~5ms from launch to deciding what to do
-- **Windows only**: tray icon + native MessageBox, no cross-platform overhead
+- **小**：标准库依赖，`-ldflags="-s -w"`，可选 UPX
+- **省**：无轮询、无浏览器引擎、无多余进程
+- **快**：启动到决策 ~5ms
+- **专**：Windows only，系统托盘 + 原生弹窗
 
 ## License
 
@@ -79,4 +56,4 @@ MIT
 
 ---
 
-> [中文文档 →](docs/zh/README.md) | [design docs →](docs/zh/)
+> [中文文档 →](docs/zh/README.md)
