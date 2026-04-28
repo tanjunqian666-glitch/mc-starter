@@ -1,3 +1,3 @@
-module github.com/tanjunqian666-glitch/mc-starter
+module github.com/gege-tlph/mc-starter
 
 go 1.22

@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tanjunqian666-glitch/mc-starter/internal/logger"
+	"github.com/gege-tlph/mc-starter/internal/logger"
 )
 
 // Downloader 文件下载器

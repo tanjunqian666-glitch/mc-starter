@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tanjunqian666-glitch/mc-starter/internal/model"
+	"github.com/gege-tlph/mc-starter/internal/model"
 )
 
 // Manager 配置管理器

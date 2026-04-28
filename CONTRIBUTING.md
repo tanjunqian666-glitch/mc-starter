@@ -5,7 +5,7 @@ Thanks for considering contributing to MC-Starter.
 ## Quick Start
 
 ```bash
-git clone https://github.com/tanjunqian666-glitch/mc-starter.git
+git clone https://github.com/gege-tlph/mc-starter.git
 cd mc-starter
 make build
 ```
@@ -46,4 +46,4 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ## Questions
 
-Open a [Discussion](https://github.com/tanjunqian666-glitch/mc-starter/discussions).
+Open a [Discussion](https://github.com/gege-tlph/mc-starter/discussions).
