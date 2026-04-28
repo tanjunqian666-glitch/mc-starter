@@ -278,16 +278,53 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 	}
 
 	// =============================================
-	// 5. client.jar 下载
+	// 5. client.jar 下载（启用增量缓存: 先查 CacheStore）
 	// =============================================
 	if !state.HasCompleted(launcher.PhaseClientJar) {
-
-		jarPath, err := vm.DownloadClientJar(meta, jarDir)
-		if err != nil {
-			logger.Error("下载 client.jar 失败: %v", err)
-			fmt.Fprintf(os.Stderr, "sync: client.jar 下载失败: %v\n", err)
-			return
+		// 读取 local config 获取安装目录
+		localCfg, _ := mg.LoadLocal()
+		installPath := ".minecraft"
+		if localCfg != nil && localCfg.InstallPath != "" {
+			installPath = localCfg.InstallPath
 		}
+		is := launcher.NewIncrementalSync(cfgDir, installPath)
+
+		jarPath := ""
+		if meta.Downloads != nil && meta.Downloads.Client != nil {
+			// 尝试从缓存获取
+			clientSHA1 := meta.Downloads.Client.Sha1
+			cachedJar := is.TryCacheClientJar(clientSHA1)
+			if cachedJar != "" {
+				// 复制到目标路径
+				jarPath = filepath.Join(jarDir, fmt.Sprintf("%s.jar", meta.ID))
+				if err := os.MkdirAll(filepath.Dir(jarPath), 0755); err == nil {
+					data, readErr := os.ReadFile(cachedJar)
+					if readErr == nil {
+						if writeErr := os.WriteFile(jarPath, data, 0644); writeErr == nil {
+							fmt.Printf("[✓] client.jar (缓存): %s\n", jarPath)
+						} else {
+							cachedJar = ""
+						}
+					} else {
+						cachedJar = ""
+					}
+				}
+			}
+		}
+
+		if jarPath == "" {
+			jarPath, err = vm.DownloadClientJar(meta, jarDir)
+			if err != nil {
+				logger.Error("下载 client.jar 失败: %v", err)
+				fmt.Fprintf(os.Stderr, "sync: client.jar 下载失败: %v\n", err)
+				return
+			}
+			// 缓存下载的 client.jar
+			if meta.Downloads != nil && meta.Downloads.Client != nil {
+				is.CacheClientJar(meta.Downloads.Client.Sha1, jarPath)
+			}
+		}
+		_ = is
 		fmt.Printf("[✓] client.jar: %s\n", jarPath)
 		state.MarkCompleted(launcher.PhaseClientJar)
 	} else {
@@ -317,7 +354,7 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 	}
 
 	// =============================================
-	// 7. Asset 文件下载（并发，8 个 worker）
+	// 7. Asset 文件下载（增量: 先查 CacheStore 再并发下载）
 	// =============================================
 	if !state.HasCompleted(launcher.PhaseAssetFiles) {
 		assetIdx, err := am.FetchIndex(targetVersion)
@@ -327,11 +364,21 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 			return
 		}
 
+		// 初始化 IncrementalSync（如果尚未初始化）
+		localCfg, _ := mg.LoadLocal()
+		installPath := ".minecraft"
+		if localCfg != nil && localCfg.InstallPath != "" {
+			installPath = localCfg.InstallPath
+		}
+		is := launcher.NewIncrementalSync(cfgDir, installPath)
+		_ = is
+
 		assetFiles := am.ListObjects(assetIdx)
-		logger.Info("开始 Asset 文件下载 (8 workers, %d 个文件)...", len(assetFiles))
+		logger.Info("开始 Asset 文件下载 (8 workers, %d 个文件, 增量缓存)...", len(assetFiles))
 
 		type assetResult struct {
 			downloaded int
+			cached     int
 			skipped    int
 			failed     int
 		}
@@ -339,11 +386,7 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 		sem := make(chan struct{}, 8)
 		// 并发下载 Asset 文件，使用 worker pool 模式：
 		//   - sem (channel) 作为信号量，同时最多 8 个 goroutine 持有 slot
-		//   - resultCh 收集每个文件的结果
-		// 选择 8 并发:
-		//   - BMCLAPI 镜像对并发连接数有一定容忍度
-		//   - 太多并发可能导致本机文件系统 I/O 瓶颈
-		//   - 4746 个文件逐一下载太慢（~30min），8 并发可压到 ~5min
+		//   - 每个文件先查 CacheStore，命中则直接复制；未命中则下载并存入缓存
 
 		for _, obj := range assetFiles {
 			go func(vpath, hash string) {
@@ -351,10 +394,20 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 				defer func() { <-sem }()
 
 				localPath := am.AssetObjectPath(hash)
+
+				// step 1: 检查本地磁盘
 				if _, err := os.Stat(localPath); err == nil {
 					resultCh <- assetResult{skipped: 1}
 					return
 				}
+
+				// step 2: 检查 CacheStore
+				if is.AssetFromCache(hash, localPath) {
+					resultCh <- assetResult{cached: 1}
+					return
+				}
+
+				// step 3: 下载
 				if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
 					logger.Warn("创建 Asset 目录失败: %v", err)
 					resultCh <- assetResult{failed: 1}
@@ -365,32 +418,45 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 					resultCh <- assetResult{failed: 1}
 					return
 				}
+
+				// 存入 CacheStore
+				is.StoreAsset(hash, localPath)
 				resultCh <- assetResult{downloaded: 1}
 			}(obj.VirtualPath, obj.Hash)
 		}
 
-		var totalDownloaded, totalSkipped, totalFailed int
+		var totalDownloaded, totalCached, totalSkipped, totalFailed int
 		for i := 0; i < len(assetFiles); i++ {
 			r := <-resultCh
 			totalDownloaded += r.downloaded
+			totalCached += r.cached
 			totalSkipped += r.skipped
 			totalFailed += r.failed
 		}
-		fmt.Printf("[✓] Asset 文件: %d 下载, %d 已存在, %d 失败\n", totalDownloaded, totalSkipped, totalFailed)
+		fmt.Printf("[✓] Asset 文件: %d 下载, %d 缓存命中, %d 已存在, %d 失败\n",
+			totalDownloaded, totalCached, totalSkipped, totalFailed)
 
-		state.SetAssetCount(totalDownloaded)
+		state.SetAssetCount(totalDownloaded + totalCached)
 		state.MarkCompleted(launcher.PhaseAssetFiles)
 	} else {
 		fmt.Printf("[*] 跳过: Asset 文件已下载\n")
 	}
 
 	// =============================================
-	// 8. Libraries 下载（解析 → 下载分离）
+	// 8. Libraries 下载（增量: 先查 CacheStore 再批量下载）
 	// =============================================
 	if !state.HasCompleted(launcher.PhaseLibraries) || !state.HasCompleted(launcher.PhaseNatives) {
 		libraryDir := filepath.Join(cfgDir, "libraries")
 		nativesDir := filepath.Join(cfgDir, "versions", targetVersion, "natives")
 		lm := launcher.NewLibraryManager(libraryDir, nativesDir)
+
+		// 初始化 IncrementalSync
+		localCfg, _ := mg.LoadLocal()
+		installPath := ".minecraft"
+		if localCfg != nil && localCfg.InstallPath != "" {
+			installPath = localCfg.InstallPath
+		}
+		is := launcher.NewIncrementalSync(cfgDir, installPath)
 
 		fmt.Printf("\n=== 同步 Libraries ===\n")
 		resolvedLibs, err := vm.ResolveLibraries(meta, filepath.Join(cfgDir, "versions"))
@@ -401,11 +467,23 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 			libFiles := lm.ResolveToFiles(resolvedLibs)
 			fmt.Printf("Libraries 条目: %d（解析为 %d 个文件）\n", len(resolvedLibs), len(libFiles))
 
-			// 不跳过已完成的阶段，因为 Libraries 和 Natives 之间有关联
 			if !state.HasCompleted(launcher.PhaseLibraries) {
-				downloaded, skipped, failed := lm.DownloadFiles(libFiles)
+				// 拆分为"需下载"和"从缓存复制"
+				toDownload, fromCache := is.ConsumeLibraryFiles(libFiles)
+				fmt.Printf(" 缓存命中: %d 个文件\n", fromCache)
+
+				// 下载剩余文件（跳过已存在的）
+				downloaded, skipped, failed := lm.DownloadFiles(toDownload)
 				fmt.Printf("[✓] Libraries 下载: %d 下载, %d 已存在, %d 失败\n", downloaded, skipped, failed)
-				state.SetLibraryCount(downloaded)
+
+				// 将新下载的存入缓存
+				for _, f := range toDownload {
+					if f.SHA1 != "" {
+						is.StoreLibrary(f.SHA1, f.LocalPath)
+					}
+				}
+
+				state.SetLibraryCount(downloaded + fromCache)
 				state.MarkCompleted(launcher.PhaseLibraries)
 			} else {
 				fmt.Printf("[*] 跳过: Libraries 已下载\n")
@@ -430,6 +508,60 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 		}
 	} else {
 		fmt.Printf("[*] 跳过: Libraries 和 Natives 已完成\n")
+	}
+
+	// =============================================
+	// 9. 增量同步收尾 — 创建/更新 repo 快照
+	// =============================================
+	{
+		localCfg, _ := mg.LoadLocal()
+		installPath := ".minecraft"
+		if localCfg != nil && localCfg.InstallPath != "" {
+			installPath = localCfg.InstallPath
+		}
+
+		is := launcher.NewIncrementalSync(cfgDir, installPath)
+
+		// 初始化 repo
+		if err := is.EnsureRepo(targetVersion); err != nil {
+			logger.Warn("repo 初始化失败(非致命): %v", err)
+		} else {
+			// 检查是否有旧快照，有则做增量差异
+			if is.LocalRepo().HasSnapshots() {
+				latestName := is.LocalRepo().LatestSnapshot()
+				logger.Info("检测到旧快照: %s, 计算增量差异", latestName)
+
+				snapshotName := fmt.Sprintf("sync-%s", time.Now().Format("20060102-150405"))
+				diff, err := is.DiffSinceSnapshot(latestName, []string{"mods", "config"})
+				if err != nil {
+					logger.Warn("增量差异计算失败(非致命): %v", err)
+				} else if diff != nil && (len(diff.Added) > 0 || len(diff.Updated) > 0 || len(diff.Deleted) > 0) {
+					fmt.Printf("[Δ] 增量变化: +%d, ~%d, -%d, =%d\n",
+						len(diff.Added), len(diff.Updated), len(diff.Deleted), diff.Unchanged)
+
+					// 创建增量快照
+					if len(diff.Added) > 0 || len(diff.Updated) > 0 {
+						if err := is.CreateSyncSnapshot(snapshotName, []string{"mods", "config"}); err != nil {
+							logger.Warn("创建增量快照失败(非致命): %v", err)
+						} else {
+							fmt.Printf("[✓] 增量快照: %s\n", snapshotName)
+						}
+					}
+				} else {
+					fmt.Printf("[Δ] 无增量变化 (已是最新)\n")
+				}
+			} else {
+				// 无旧快照，创建全量快照
+				snapshotName := fmt.Sprintf("initial-%s", time.Now().Format("20060102-150405"))
+				if err := is.CreateSyncSnapshot(snapshotName, []string{"mods", "config"}); err != nil {
+					logger.Warn("创建全量快照失败(非致命): %v", err)
+				} else {
+					fmt.Printf("[✓] 全量快照: %s\n", snapshotName)
+				}
+			}
+
+			logger.Debug("repo stats: %s", is.SyncStats())
+		}
 	}
 
 	// 标记全部完成并清理状态文件
