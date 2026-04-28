@@ -1,54 +1,54 @@
 # MC-Starter
 
-> Minecraft 更新器。双击，等，玩。
+> Minecraft updater. Double-click, wait, play.
 
 ## Quick Start
 
 ```
-1. 把 starter.exe 放到 PCL2.exe 旁边
-2. 把 config/server.json 放在一起
-3. 双击 starter.exe
-   └→ 自动: 找 PCL2 → 下 MC → 装 Fabric → 同步模组 → 配 PCL.ini → 启动 PCL2
-4. 点 Play
+1. Put starter.exe next to PCL2.exe
+2. Put config/server.json together
+3. Double-click starter.exe
+   └→ auto: find PCL2 → download MC → install Fabric → sync mods → patch PCL.ini → launch PCL2
+4. Click Play
 ```
 
-### 前提
+### Prerequisites
 
 - Windows 10/11
-- Java 17+（没有会引导安装）
+- Java 17+ (will guide you if missing)
 
 ## Commands
 
-| 命令 | 描述 |
+| Command | Description |
 |---|---|
-| `starter run` | 全自动: 检测 → 同步 → 集成 → 启动 PCL2 |
-| `starter init` | 初始化本地配置 |
-| `starter check` | 检查 Java / PCL2 / 配置 |
-| `starter sync` | 仅同步版本 + 模组 |
-| `starter repair` | 修复工具 |
-| `starter pcl detect` | 查找 PCL2.exe |
-| `starter pcl path <path>` | 手动指定 PCL2 路径 |
-| `starter version` | 版本信息 |
+| `starter run` | Full auto: detect → sync → integrate → launch PCL2 |
+| `starter init` | Initialize local config |
+| `starter check` | Check Java / PCL2 / config integrity |
+| `starter sync` | Sync version + mods only |
+| `starter repair` | Repair tool |
+| `starter pcl detect` | Find PCL2.exe |
+| `starter pcl path <path>` | Set PCL2 path manually |
+| `starter version` | Show version |
 
 ### Flags
 
-`--config ./dir` 配置目录（默认 `./config`）
+`--config ./dir` config directory (default `./config`)
 `--verbose` / `--headless` / `--dry-run`
 
 ## Build
 
 ```bash
 make build          # → build/starter.exe
-make build-release  # GUI 模式，无控制台窗口
-make size           # 查看二进制大小
+make build-release  # GUI mode, no console window
+make size           # check binary size
 ```
 
-## 设计目标
+## Design Goals
 
-- **小**：标准库依赖，`-ldflags="-s -w"`，可选 UPX
-- **省**：无轮询、无浏览器引擎、无多余进程
-- **快**：启动到决策 ~5ms
-- **专**：Windows only，系统托盘 + 原生弹窗
+- **Small**: stdlib deps, `-ldflags="-s -w"`, optional UPX
+- **Light**: no polling, no browser engine, no extra processes
+- **Fast**: ~5ms from launch to decision
+- **Focused**: Windows only, system tray + native dialogs
 
 ## License
 
