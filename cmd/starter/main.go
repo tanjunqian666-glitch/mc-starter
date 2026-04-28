@@ -338,6 +338,45 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 	}
 	fmt.Printf("[✓] Asset 文件: %d 下载, %d 已存在, %d 失败\n", totalDownloaded, totalSkipped, totalFailed)
 
+	// 8. Libraries 下载
+	libraryDir := filepath.Join(cfgDir, "libraries")
+	nativesDir := filepath.Join(cfgDir, "versions", targetVersion, "natives")
+	lm := launcher.NewLibraryManager(libraryDir, nativesDir)
+
+	if len(meta.Libraries) > 0 {
+		fmt.Printf("\n=== 同步 Libraries (%d 个) ===\n", len(meta.Libraries))
+
+		var libSuccess, libFailed, nativesCount int
+		for _, lib := range meta.Libraries {
+			// 先检查 rules
+			if !launcher.ShouldInclude(lib.Rules) {
+				continue
+			}
+
+			path, _, err := lm.DownloadLibrary(lib)
+			if err != nil {
+				logger.Warn("库下载失败: %s (%v)", lib.Name, err)
+				libFailed++
+				continue
+			}
+			if path != "" {
+				libSuccess++
+			}
+
+			// 下载并解压 natives
+			if lib.Natives != nil {
+				if err := lm.DownloadNatives(lib); err != nil {
+					logger.Warn("natives 下载/解压失败: %s (%v)", lib.Name, err)
+					continue
+				}
+				nativesCount++
+			}
+		}
+		fmt.Printf("[✓] Libraries: %d 下载, %d 失败, %d natives\n", libSuccess, libFailed, nativesCount)
+	} else {
+		fmt.Println("[!] 该版本没有 Libraries 信息")
+	}
+
 	logger.Info("sync: 完成")
 	fmt.Printf("\nsync: 完成\n")
 }
