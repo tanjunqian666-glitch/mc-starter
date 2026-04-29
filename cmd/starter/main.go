@@ -100,33 +100,84 @@ mc-starter — Windows 版 Minecraft 版本管理 & 整合包更新器
 `))
 }
 
+// run 全自动模式: 检测 → 同步 → 拉起启动器
 func run(cfgDir string, verbose bool, headless bool, dryRun bool) {
 	logger.Init(verbose)
 	logger.Info("run: 全自动模式")
+	fmt.Println("=== 全自动模式 ===")
 
 	// 1. 初始化配置（如果不存在则创建）
 	if err := ensureConfig(cfgDir); err != nil {
 		logger.Error("配置初始化失败: %v", err)
+		fmt.Fprintf(os.Stderr, "run: 配置初始化失败: %v\n", err)
 		return
 	}
 
-	// 2. 拉取版本清单
-	manifestDir := filepath.Join(cfgDir, ".cache", "manifest")
-	mm := launcher.NewVersionManifestManager(manifestDir)
-	manifest, err := mm.Fetch(30 * time.Minute)
-	if err != nil {
-		logger.Error("版本清单拉取失败: %v", err)
+	// 2. 读取本地配置，查找 PCL2 和 .minecraft 配置
+	mg := config.New(cfgDir)
+	localCfg, _ := mg.LoadLocal()
+	if localCfg != nil && localCfg.Launcher == "" {
+		localCfg.Launcher = "auto"
+	}
+
+	// 检测启动器
+	pclDetected := launcher.FindPCL2()
+	if pclDetected != nil {
+		fmt.Printf("[✓] 检测到 PCL2: %s\n", pclDetected.Summary())
+	} else {
+		fmt.Println("[*] 未检测到 PCL2，使用裸启动模式")
+	}
+
+	// 3. 读取服务端配置，确定目标版本
+	serverCfg, err := mg.LoadServer()
+	var targetVersion string
+	if err == nil && serverCfg.Version.ID != "" {
+		targetVersion = serverCfg.Version.ID
+		fmt.Printf("[✓] 目标版本: %s (来自 server.json)\n", targetVersion)
+	} else {
+		// 没有 server.json，拉 manifest 用最新 release
+		manifestDir := filepath.Join(cfgDir, ".cache", "manifest")
+		mm := launcher.NewVersionManifestManager(manifestDir)
+		manifest, fetchErr := mm.Fetch(30 * time.Minute)
+		if fetchErr != nil {
+			logger.Error("版本清单拉取失败: %v", fetchErr)
+			fmt.Fprintf(os.Stderr, "run: 版本清单拉取失败: %v\n", fetchErr)
+			return
+		}
+		targetVersion = manifest.Latest.Release
+		fmt.Printf("[*] 目标版本: %s (最新正式版, 无 server.json)\n", targetVersion)
+	}
+
+	if dryRun {
+		fmt.Printf("[DRY-RUN] 将启动版本: %s\n", targetVersion)
 		return
 	}
 
-	if !headless {
-		fmt.Printf("最新版本: release=%s  snapshot=%s\n", manifest.Latest.Release, manifest.Latest.Snapshot)
-		fmt.Printf("共 %d 个版本可用\n", len(manifest.Versions))
+	// 4. 查找本地版本目录
+	if localCfg != nil && localCfg.ManagedVersions == nil {
+		localCfg.ManagedVersions = []string{targetVersion}
+	}
+	finder := launcher.NewVersionFinder(localCfg)
+	results := finder.FindManagedVersions(localCfg.ManagedVersions)
+	versionResult := results[targetVersion]
+
+	if versionResult == nil || !versionResult.Found {
+		// 首次启动: 版本未安装 → 执行同步
+		fmt.Printf("[*] 版本 %s 未安装, 首次启动自动同步...\n", targetVersion)
+		sync(cfgDir, verbose, false)
+	} else {
+		from := "路径扫描"
+		if versionResult.FromPCL {
+			from = "PCL配置"
+		}
+		fmt.Printf("[✓] 版本 %s 已安装于 %s (来自 %s)\n",
+			targetVersion, versionResult.VersionDir, from)
 	}
 
-	// TODO: 后续步骤 — 读 server.json → 确定目标版本 → 下载
-	logger.Info("run: 版本清单就绪, 等待 P1 功能完善")
-	fmt.Println("run: 版本清单已同步，后续功能开发中")
+	// TODO: 5. 拉起启动器（启动游戏）
+	logger.Info("run: 同步完成, 等待启动器拉起功能")
+	fmt.Println("run: 同步完成，启动器拉起功能开发中")
+	logger.Info("run: 全自动模式完成")
 }
 
 func initialize(cfgDir string) {
