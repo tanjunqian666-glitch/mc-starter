@@ -74,9 +74,9 @@ mc-starter — Windows 版 Minecraft 版本管理 & 整合包更新器
   starter repair   修复工具
   starter backup   备份管理
     list           列出备份
-    restore <id>   恢复备份
+    restore <name> 恢复指定快照
     create         手动创建备份
-    delete <id>    删除备份
+    delete <name>  删除快照
   starter pcl      操作 PCL2
     detect         检测 PCL2.exe 位置
     path <path>    设置 PCL2 路径
@@ -584,16 +584,176 @@ func handleBackup(args []string) {
 	}
 	switch args[0] {
 	case "list":
-		fmt.Println("backup list: not yet implemented")
+		handleBackupList(args[1:])
 	case "restore":
-		fmt.Println("backup restore: not yet implemented")
+		handleBackupRestore(args[1:])
 	case "create":
-		fmt.Println("backup create: not yet implemented")
+		handleBackupCreate(args[1:])
 	case "delete":
-		fmt.Println("backup delete: not yet implemented")
+		handleBackupDelete(args[1:])
 	default:
 		fmt.Printf("backup: unknown subcommand %s\n", args[0])
 	}
+}
+
+func handleBackupList(args []string) {
+	cfgDir := "config"
+	if len(args) >= 2 && args[0] == "--config" {
+		cfgDir = args[1]
+	}
+	mg := config.New(cfgDir)
+	localCfg, err := mg.LoadLocal()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取配置失败: %v\n", err)
+		return
+	}
+	installPath := ".minecraft"
+	if localCfg.InstallPath != "" {
+		installPath = localCfg.InstallPath
+	}
+
+	repo := launcher.NewLocalRepo(installPath)
+	if !repo.HasSnapshots() {
+		fmt.Println("没有快照")
+		return
+	}
+
+	snapshots, err := repo.ListSnapshots()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "列出快照失败: %v\n", err)
+		return
+	}
+
+	fmt.Printf("快照列表 (%d 个):\n", len(snapshots))
+	for i, name := range snapshots {
+		meta, err := repo.LoadSnapshotMeta(name)
+		if err != nil {
+			fmt.Printf("  %d. %s (读取失败: %v)\n", i+1, name, err)
+			continue
+		}
+		fmt.Printf("  %d. %s — %d 个文件, %.1f MB, %s\n",
+			i+1, name, meta.FileCount, float64(meta.TotalSize)/1024/1024,
+			meta.CreatedAt.Format("2006-01-02 15:04:05"))
+	}
+}
+
+func handleBackupRestore(args []string) {
+	if len(args) < 1 {
+		fmt.Println("用法: starter backup restore <snapshot_name> [--config <dir>]")
+		return
+	}
+	snapshotName := args[0]
+	cfgDir := "config"
+	for i := 1; i < len(args); i++ {
+		if args[i] == "--config" && i+1 < len(args) {
+			cfgDir = args[i+1]
+			i++
+		}
+	}
+
+	mg := config.New(cfgDir)
+	localCfg, err := mg.LoadLocal()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取配置失败: %v\n", err)
+		return
+	}
+	installPath := ".minecraft"
+	if localCfg.InstallPath != "" {
+		installPath = localCfg.InstallPath
+	}
+
+	repo := launcher.NewLocalRepo(installPath)
+	if !repo.HasSnapshot(snapshotName) {
+		fmt.Fprintf(os.Stderr, "快照 %s 不存在\n", snapshotName)
+		return
+	}
+
+	fmt.Printf("恢复快照 %s 到 %s ...\n", snapshotName, installPath)
+	if err := repo.RestoreSnapshot(snapshotName, installPath); err != nil {
+		fmt.Fprintf(os.Stderr, "恢复失败: %v\n", err)
+		return
+	}
+	fmt.Printf("[✓] 快照 %s 已恢复\n", snapshotName)
+}
+
+func handleBackupCreate(args []string) {
+	cfgDir := "config"
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--config" && i+1 < len(args) {
+			cfgDir = args[i+1]
+			i++
+		}
+	}
+
+	mg := config.New(cfgDir)
+	localCfg, err := mg.LoadLocal()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取配置失败: %v\n", err)
+		return
+	}
+	installPath := ".minecraft"
+	if localCfg.InstallPath != "" {
+		installPath = localCfg.InstallPath
+	}
+
+	repo := launcher.NewLocalRepo(installPath)
+	if !repo.IsInitialized() {
+		repo.Init("unknown")
+	}
+
+	is := launcher.NewIncrementalSync(cfgDir, installPath)
+	snapshotName := fmt.Sprintf("manual-%s", time.Now().Format("20060102-150405"))
+
+	if err := is.CreateSyncSnapshot(snapshotName, []string{"mods", "config"}); err != nil {
+		fmt.Fprintf(os.Stderr, "创建备份失败: %v\n", err)
+		return
+	}
+
+	meta, _ := repo.LoadSnapshotMeta(snapshotName)
+	if meta != nil {
+		fmt.Printf("[✓] 备份 %s 已创建: %d 个文件, %.1f MB\n",
+			snapshotName, meta.FileCount, float64(meta.TotalSize)/1024/1024)
+	} else {
+		fmt.Printf("[✓] 备份 %s 已创建\n", snapshotName)
+	}
+}
+
+func handleBackupDelete(args []string) {
+	if len(args) < 1 {
+		fmt.Println("用法: starter backup delete <snapshot_name> [--config <dir>]")
+		return
+	}
+	snapshotName := args[0]
+	cfgDir := "config"
+	for i := 1; i < len(args); i++ {
+		if args[i] == "--config" && i+1 < len(args) {
+			cfgDir = args[i+1]
+			i++
+		}
+	}
+
+	mg := config.New(cfgDir)
+	localCfg, err := mg.LoadLocal()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取配置失败: %v\n", err)
+		return
+	}
+	installPath := ".minecraft"
+	if localCfg.InstallPath != "" {
+		installPath = localCfg.InstallPath
+	}
+
+	repo := launcher.NewLocalRepo(installPath)
+	if !repo.HasSnapshot(snapshotName) {
+		fmt.Fprintf(os.Stderr, "快照 %s 不存在\n", snapshotName)
+		return
+	}
+
+	if err := repo.DeleteSnapshot(snapshotName); err != nil {
+		fmt.Fprintf(os.Stderr, "删除失败: %v\n", err)
+		return
+	}
+	fmt.Printf("[✓] 快照 %s 已删除\n", snapshotName)
 }
 
 func handlePCL(args []string) {
