@@ -1,7 +1,7 @@
-# MC 版本更新器 — WBS 工作分解 + 迭代计划 & P1 回顾
+# MC 版本更新器 — WBS 工作分解 + 迭代计划
 
-> **项目状态**：P1 全部完成 ✅ | P2 全部完成 ✅ | 当前阶段：P2 剩余 + P3-P5 待启动
-> **P1 后经验总结**见文末 §六
+> **项目状态**：P1 全部完成 ✅ | P2 全部完成 ✅ | P5 全部完成 ✅ | **当前阶段：P0.x 服务端**
+> **外部参考**见文末 §七（MCUpdater）
 
 ---
 
@@ -16,6 +16,7 @@
 | | **代码自查与质量规范.md** | 编码规范、提交规范 |
 | | **构建与CI.md** | 构建流程、CI/CD、发布 |
 | | **详细开发流程.md** | P0→P5 逐阶段开发步骤 |
+| **P0x** | 服务端设计（本文件 §八 + 新增） | REST API + 多包管理 + 认证 |
 | **P0** | 错误处理与安全设计.md | 全局错误类型 + 安全策略 |
 | **P1** | 本地版本仓库与增量同步.md | 仓库结构、增量 diff、快照策略 |
 | | 模组与配置同步策略.md | mods/conf 同步方案 |
@@ -26,15 +27,16 @@
 | **P2** | 修复与备份系统.md | 备份策略、修复流程、回滚 |
 | | 修复工具GUI界面.md | TUI 界面设计 |
 | | 崩溃监控与自动修复.md | 崩溃检测、静默守护、PCL2 借鉴对比 |
-| **P4** | PCL2集成方案.md | PCL2 集成模式 |
+| **P6** | 更新频道（Channel）设计（新建） | 多包多频道、可选安装 |
+| **P5** | PCL2集成方案.md | PCL2 集成模式 |
 | | 参考/pcl-libraries-analysis.md | PCL2 蒸馏分析 table |
 | | 参考/launcher-architecture.md | PCL2/HMCL 结构对应 |
-| **P5** | 自更新方案.md | 自更新流程、多通道、回滚 |
+| **P3** | 自更新方案.md | 自更新流程、多通道、回滚 |
 
 ### 阅读策略
 
 ```
-全局 → P0 → P1 → P2 → P4 → P5（逐阶段推进）
+全局 → P0 → P0x（当前）→ P1 → P2 → P5 → P6 → P3（逐阶段推进）
 每个阶段开始前读对应的 1-2 个设计文档即可
 ```
 
@@ -42,6 +44,8 @@
 
 | 模块 | 代码文件 | 关联 WBS |
 |------|---------|----------|
+| **服务端 HTTP API** | `cmd/mc-starter-server/main.go` | P0x.1-P0x.7 |
+| **多包管理器** | `internal/server/` | P0x.1-P0x.7 |
 | CLI 入口 / 子命令 | `cmd/starter/main.go` | P0.2, P1.15, 全部 |
 | 版本清单拉取 | `internal/launcher/version_manifest.go` | P1.1 |
 | version.json 解析 + client.jar | `internal/launcher/version.go` | P1.2 |
@@ -52,8 +56,8 @@
 | 文件缓存 | `internal/launcher/cache.go` | P1.8, P1.11 |
 | 增量同步 | `internal/launcher/incr_sync.go` | P1.9 |
 | 客户端增量更新 | `internal/launcher/update.go` | P1.15 |
-| PCL2 检测 | `internal/launcher/pcl_detect.go` | P4.2 (已超前写) |
-| 版本查找器 | `internal/launcher/finder.go` | P4.1 (已超前写) |
+| PCL2 检测 | `internal/launcher/pcl_detect.go` | P5.2 (已超前写) |
+| 版本查找器 | `internal/launcher/finder.go` | P5.1 (已超前写) |
 | TUI 全自动界面 | `internal/tui/` | P2.12 (已超前写) |
 | 服务端包管理 | `internal/pack/pack.go` | P1.12-P1.14 |
 | 配置读写 | `internal/config/config.go` | P0.3 |
@@ -67,19 +71,24 @@
 ## 二、WBS 总览
 
 ```
-P0 CLI框架+配置 (2d)  →  P1 版本下载+仓库+更新 (5d)  →  P2 Loader+修复 (3d)
-   已完工 ✅                 已全部完工 ✅                   ⬅ 当前阶段
-                              ├─ P1.1-P1.6 基础下载        ├─ P2.1 Fabric 安装器
-                              ├─ P1.7-P1.11 仓库+缓存      ├─ P2.2 Fabric libraries
-                              ├─ P1.12-P1.14 服务端        ├─ P2.6 备份系统
-                              └─ P1.15 客户端更新          ├─ P2.7 修复命令
-                                                           ├─ P2.8 崩溃检测
-P3 Java检测 (1d)      →  P4 启动器兼容 (3d)               ├─ P2.9 静默守护
-   ⬅ 待启动              ⬅ 待启动                          ├─ P2.10 报告上传
-                                                           ├─ P2.11 修复后同步
-P5 自更新 (2d)                                            ├─ P2.12 TUI界面
-   ⬅ 待启动                                                ├─ P2.13 托盘入口
-                                                           └─ P2.14-P2.15 细化
+                         ┌────────────────────────────────────┐
+P0 CLI框架+配置 (2d)  → │ P0x 服务端骨架 (PRIORITY NOW)     │
+   已完工 ✅              │ 独立 server 二进制                  │
+                         │ REST API + 客户端 SDK               │
+                         │ 多整合包管理                        │
+P1 版本下载+仓库 (5d)    │ 认证 + 部署                        │
+   已全部完工 ✅          └──────────┬─────────────────────────┘
+                                    │
+P2 Fabric+修复 (3d)      ◄─────────┘   P5 启动器兼容 (3d)
+   已全部完工 ✅           客户端连接服务端       待启动
+                           拉增量更新
+                         ┌─────────────────────────────┐
+P6 频道体系 (2d)  →     │ 多频道、可选安装           │
+   待启动                 │ MCUpdater channel 借鉴      │
+                         └──────────┬──────────────────┘
+                                    │
+P3 自更新 (2d)          ◄───────────┘
+   待启动
 ```
 
 ---
@@ -96,6 +105,23 @@ P5 自更新 (2d)                                            ├─ P2.12 TUI界
 | P0.4 | 镜像管理器：多镜像 + 智能回退 | ✅ | `internal/mirror/` |
 | P0.5 | 下载器：HTTP GET + hash 校验 | ✅ | `internal/downloader/` |
 | P0.6 | 日志系统：分级输出 | ✅ | `internal/logger/` |
+
+### P0.x：服务端骨架 — 🎯 当前阶段
+
+**指导思想**：独立 server 进程，REST API，多整合包管理，客户端通过 API 连接
+
+| ID | 任务 | 预估 | 产出物 |
+|----|------|------|--------|
+| P0x.1 | server 骨架：go.mod + main.go + 启动/停止 | 2h | `cmd/mc-starter-server/main.go` |
+| P0x.2 | 仓库目录结构：多包 + 版本目录设计 | 2h | 设计文档 + `internal/server/repo.go` |
+| P0x.3 | REST API v1：客户端端点（版本查询/增量/下载） | 4h | `internal/server/api_client.go` |
+| P0x.4 | REST API v1：管理端点（创建包/导入/publish/列表） | 4h | `internal/server/api_admin.go` |
+| P0x.5 | 客户端 SDK：starter update 对接 server API | 3h | `internal/launcher/update.go` 改造 |
+| P0x.6 | 认证：简单 token 认证 + 管理端鉴权 | 2h | `internal/server/auth.go` |
+| P0x.7 | 部署：配置文件 + Dockerfile + 默认配置 | 2h | `server-config.yml` + `Dockerfile` |
+
+> **现状**：`internal/pack/pack.go` 已实现 zip 导入/diff/publish 逻辑，P0x 负责将其包装为 HTTP API + 多包索引。
+> `internal/launcher/update.go` 已实现客户端增量更新逻辑，P0x 负责将 server.json 拉取改为 API 调用。
 
 ### P1：版本下载 + 仓库 + 增量更新 — ✅ 全部完工
 
@@ -115,7 +141,7 @@ P5 自更新 (2d)                                            ├─ P2.12 TUI界
 | P1.12 | 服务端 zip 解包+扫描 | ✅ | `pack.go` — hash+SHA1+SHA256 双算 |
 | P1.13 | 服务端差异分析 | ✅ | `pack.go` — added/removed/updated 统计 |
 | P1.14 | 服务端发布管理 | ✅ | `pack.go` — draft→published+增量清单生成 |
-| **P1.15** | **客户端增量更新** | **✅** | **`update.go` — 按 hash 拉文件+双缓存链** |
+| P1.15 | 客户端增量更新 | ✅ | `update.go` — 按 hash 拉文件+双缓存链 |
 
 ### P2：Fabric 安装 + 修复栈 — ✅ 全部完工
 
@@ -126,43 +152,44 @@ P5 自更新 (2d)                                            ├─ P2.12 TUI界
 | P2.6 | 备份系统：CreateBackup + Rollback | 4h | ✅ `internal/repair/backup.go` |
 | P2.7 | 修复命令：repair 命令树 + 清理 | 3h | ✅ `internal/repair/repair.go` |
 | P2.8 | 崩溃检测：退出码+崩溃报告+hs_err | 2h | ✅ `internal/repair/detector.go` |
-| P2.9 | 静默守护：后台轮询+日志监听+崩溃验证 | 4h | ✅ `internal/repair/daemon.go` + `daemon_test.go`<br/>• 轮询引擎 + 进程存活检测<br/>• PCL2 借签：crash 关键字实时检测（`detectCrashKeyword`）<br/>• PCL2 借签：5 阶段加载进度跟踪（`LogProgressStage`）<br/>• 崩溃验证门（`verifyAndFireCrashes`）：只有目录下有新崩溃报告才触发回调<br/>• CLI 命令：`starter daemon`<br/>• 23 个单元测试 ✅ |
-| P2.10 | 崩溃报告上传 | 2h | 📋 待启动 |
+| P2.9 | 静默守护：后台轮询+日志监听+崩溃验证 | 4h | ✅ `internal/repair/daemon.go` + `daemon_test.go` |
+| P2.10 | 崩溃报告上传（改为 API 上报） | 2h | 📋 待启动（对接 P0x 后） |
 | P2.11 | 修复后自动同步 | 2h | 📋 待启动 |
 | P2.12 | 修复 TUI 界面（bubbletea） | 4h | 📋 待启动 |
 | P2.13 | 托盘菜单入口 | 2h | 📋 待启动 |
 | P2.14 | Windows 弹窗兜底（无终端） | 2h | 📋 待启动 |
 | P2.15 | 修复后 PCL2 刷新 | 1h | 📋 待启动 |
 
-### P3：Java 环境检测 — 📋 待启动
+### P3：自更新 — 📋 待启动
 
 | ID | 任务 | 预估 |
 |----|------|------|
-| P3.1 | 路径检测：JAVA_HOME/PATH/注册表 | 3h |
-| P3.2 | 版本校验：java -version 解析 | 2h |
-| P3.3 | 引导安装提示 | 1h |
+| P3.1 | 更新检查+semver 比较 | 3h |
+| P3.2 | 下载+hash+签名校验 | 3h |
+| P3.3 | 替换自身+bat 脚本 | 4h |
+| P3.4 | 回滚（10s 检测） | 3h |
+| P3.5 | 多通道 stable/beta/dev | 2h |
+| P3.6 | 交互通知 | 2h |
 
-### P4：启动器兼容 — 📋 待启动
-
-| ID | 任务 | 预估 |
-|----|------|------|
-| P4.1 | PCL2/裸启动模式 | 3h* |
-| P4.2 | PCL2 集成：ini 读写+注册表 | 6h* |
-| P4.3 | HMCL 兼容 | 2h |
-| P4.4 | 官方启动器兼容 | 1h |
-
-> *P4.1 版本查找器 `finder.go` 和 P4.2 PCL2 检测 `pcl_detect.go` 已超前完成。
-
-### P5：自更新 — 📋 待启动
+### P5：启动器兼容 — 📋 待启动
 
 | ID | 任务 | 预估 |
 |----|------|------|
-| P5.1 | 更新检查+semver 比较 | 3h |
-| P5.2 | 下载+hash+签名校验 | 3h |
-| P5.3 | 替换自身+bat 脚本 | 4h |
-| P5.4 | 回滚（10s 检测） | 3h |
-| P5.5 | 多通道 stable/beta/dev | 2h |
-| P5.6 | 交互通知 | 2h |
+| P5.1 | PCL2/裸启动模式 | 3h* |
+| P5.2 | PCL2 集成：ini 读写+注册表 | 6h* |
+| P5.3 | HMCL 兼容 | 2h |
+| P5.4 | 官方启动器兼容 | 1h |
+
+> *P5.1 版本查找器 `finder.go` 和 P5.2 PCL2 检测 `pcl_detect.go` 已超前完成。
+
+### P6：更新频道体系 — 📋 待启动
+
+| ID | 任务 | 预估 |
+|----|------|------|
+| P6.1 | 频道数据结构 + 配置格式 | 2h |
+| P6.2 | 服务端多频道管理 | 3h |
+| P6.3 | 客户端频道选择 | 2h |
+| P6.4 | 可选/必装标记及安装逻辑 | 1h |
 
 ---
 
@@ -176,7 +203,7 @@ P5 自更新 (2d)                                            ├─ P2.12 TUI界
 | S2 | P1 下载期：sync 搞定 .minecraft | ✅ |
 | S3 | P1 仓库+服务端+增量更新 | ✅ |
 
-### 📋 Sprint 4（当前 — Fabric 安装器 + 修复栈）— ✅ 全部完工
+### ✅ Sprint 4（已完成）
 
 ```
 P2.1 Fabric 安装器      → 2h
@@ -184,35 +211,34 @@ P2.2 Fabric libraries   → 4h
 P2.6 备份系统           → 4h
 P2.7 修复命令           → 3h
 P2.8 崩溃检测           → 2h
-P2.12 TUI界面           → 4h
-P2.13 托盘入口          → 2h
-P2.14 弹窗兜底          → 2h
-P2.15 PCL刷新           → 1h
+P2.9 静默守护           → 4h
 ─────────────────────────────
-里程碑 M3：./starter sync 带 Fabric + repair 可用
+里程碑 M3：./starter sync + repair 可用
 ```
 
-### 📋 Sprint 5（Java 检测 + 启动器兼容）
+### 📋 Sprint 5（当前 — 服务端骨架）
 
 ```
-P3.1 Java 路径检测       → 3h
-P3.2 版本校验            → 2h
-P3.3 引导提示            → 1h
-P4.1 PCL2 兼容           → 3h
-P4.2 HMCL 兼容           → 2h
-P4.3 官方启动器兼容      → 1h
+P0x.1 server 骨架       → 2h
+P0x.2 仓库目录结构      → 2h
+P0x.3 客户端 API        → 4h
+P0x.4 管理 API          → 4h
+P0x.5 客户端 SDK 改造   → 3h
+P0x.6 认证              → 2h
+P0x.7 部署配置文件      → 2h
 ─────────────────────────────
-里程碑 M4：完整启动器体验
+里程碑 M4：mc-starter-server 可用 +
+  starter 客户端通过 API 拿增量更新
 ```
 
-### 📋 Sprint 6（自更新 + 收尾）
+### 📋 Sprint 6（收尾）
 
 ```
-P5.1 更新检查            → 2h
-P5.2 自身替换            → 3h
-P5.3 回滚                → 1h
-P5.4 多通道              → 1.5h
-QA  手动测试+README      → 6h
+P2.10-P2.15 修复细化    → 各2h
+P5 启动器兼容            → 6h
+P6 频道体系              → 8h
+QA 手动测试+README       → 6h
+P3 自更新                → 12h
 ─────────────────────────────
 里程碑 M5：v1.0 发布
 ```
@@ -222,46 +248,115 @@ QA  手动测试+README      → 6h
 ## 五、关键路径
 
 ```
-P0.1 → P0.2 → P0.3 ────────────────────────────── 关键路径（已走完）
-                    ↘                      ↗
-                     P0.4 → P0.5 → P1.x → P2.x
-                                 ↗
-                     P0.6───────┘
+P0.1 → P0.2 → P0.3 ──────────────── 关键路径（已走完）
+                    ↘                        ↗
+                     P0.4 → P0.5 → P1.x → P0x.x ← 当前
+                                           ↓
+                                    P2.x → P5.x → P6.x → P3.x
 ```
 
-## 六、P1 阶段经验总结
+## 六、服务端 API 设计草案（P0x 先行）
 
-### 做得好的 👍
+### REST API 概览
 
-1. **模块化设计** — sync 流程拆成 version/asset/library 三个独立 manager，各自负责自己的阶段，`main.go` 只做编排。后期加增量同步（P1.9）和客户端更新（P1.15）都是独立文件，零侵入。
+| 端点 | 方法 | 角色 | 说明 |
+|------|------|------|------|
+| `/api/v1/ping` | GET | 任意 | 健康检查 |
+| `/api/v1/packs` | GET | 任意 | 获取可用整合包列表 |
+| `/api/v1/packs/{name}/latest` | GET | 任意 | 获取指定包的最新信息 |
+| `/api/v1/packs/{name}/update?from={version}` | GET | 任意 | 获取增量变更清单 |
+| `/api/v1/packs/{name}/files/{hash}` | GET | 任意 | 按 hash 下载单个文件 |
 
-2. **两阶段分离（解析/下载）** — PCL 蒸馏学来的 `ResolveLibrary → DownloadFiles` 模式，测试和 debug 都方便。后来 cache 注入也只需要改中间层。
+### 管理端 API（需 token）
 
-3. **包内测试先行** — `launcher` 包全部测试 0.09s 跑完，重构时敢改敢动。
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/admin/packs` | POST | 创建新包 |
+| `/api/v1/admin/packs/{name}/import` | POST | 上传 zip 导入 |
+| `/api/v1/admin/packs/{name}/publish` | POST | 发布 draft |
+| `/api/v1/admin/packs/{name}/versions` | GET | 版本历史 |
 
-4. **双缓存链设计** — `CacheStore`（全局 dedup）+ repo `files/`（快照引用）组合，下载过的文件跨版本复用，实测高收益。
+### 增量响应格式
 
-5. **代码审查修了 5 个 bug** — 包括 `cache.Clean` 误删全部 meta 这种潜伏 bug，审查机制到位。
+```json
+{
+  "version": "v1.2.0",
+  "from_version": "v1.1.0",
+  "mode": "incremental",
+  "added": [
+    {"path": "mods/iris.jar", "hash": "abc123...", "size": 4096000}
+  ],
+  "updated": [
+    {"path": "mods/sodium.jar", "hash": "def456...", "size": 5120000}
+  ],
+  "removed": ["mods/optifine.jar"]
+}
+```
 
-### 踩过的坑 💀
+### 客户端配置（config.json）
 
-1. **`downloader.File` 的 `expectedHash` 参数是设计陷阱** — 参数名是 hash 但不说明是 SHA256 还是 SHA1，注释自己都写了"注意"。Minecraft 生态文件多数用 SHA1，这个参数实际传 ""，调用方自行校验。**教训**：要么明确算法，要么移除 hash 参数。
+```json
+{
+  "minecraft_dir": "/home/user/.minecraft",
+  "server_url": "https://mc.example.com:8443",
+  "server_token": "",
+  "pack_name": "cjc-pack",
+  "auto_update": true
+}
+```
 
-2. **Win symlink 需要管理员权限** — `updateCurrentSymlink` 的 `os.Symlink` 在 Windows 上大概率失败，现有 `logger.Debug` 静默忽略是对的，但没有对应的替代方案（junction / copy）。
+---
 
-3. **`mirror.go` 探测超时写死 3s** — 和构造函数 `threshold (4s)` 不一致，导致 switch 逻辑跑偏。probe 超时应取自 threshold 而不是硬编码。
+## 七、外部参考借鉴（2026-04-30 收录：MCUpdater/Grass-block）
 
-4. **增量更新 API 设计滞后** — P1.15 实现前 service pack publish 生成的是完整清单，没有增量清单。后补的 `BuildServerUpdateInfo` 基于 repo 快照 diff 生成增量 JSON，耦合了服务端和客户端逻辑。
+> 来源：https://github.com/Grass-block/MCUpdater — Java/Netty 的 Minecraft 客户端资源更新系统
 
-### 设计权衡保留的 ⚠️
+### ✅ 已纳入迭代计划
 
-- `pack.ComputeDiff` 和 `launcher.ComputeDiff` 同名不同参 → 不同包，阅读时注意区分
-- `pack.UpdatedEntry` 声明未使用 → 等 P2 修复流程用到再删
-- CacheStore.Clean 删 entry 后不维护 RefCounts 残留条目 → 改为只删已删除 hash
-- `IncrementalSync.CacheStore()` 暴露 `*CacheStore` 指针 → 当前无并发风险，后续做只读接口
+| 借鉴点 | 优先级 | 对应 WBS | 说明 |
+|--------|--------|----------|------|
+| 更新频道（Channel）分层 | P6 | P6.1-P6.4 | 按 `mods/config/resourcepacks` 分频道，各自独立版本追踪+可选安装 |
+| 时间戳版本合并（ofMerged） | P6 | 增量更新增强 | 客户端仅上报时间戳，服务端返回累积变更 |
 
-### 后续可复用模式 📐
+### 🔍 后续评估
 
-1. **"解析/下载分离"** 用在 Fabric 安装器（P2.1-P2.2）：先解析 meta JSON 得到 LibraryFile 列表，再用已有 DownloadFiles 批量下载
-2. **`sync_state.go` 的原子写入 + 断点** 直接复用到 P2.9 守护进程
-3. **`CacheStore` 的引用计数** 用于 P5 自更新中旧版本的缓存保留策略
+| 借鉴点 | 优先级 | 说明 |
+|--------|--------|------|
+| 交互式控制台（ConsoleService） | P0x/低 | daemon 模式下可附加交互 shell |
+| pack-meta.json 打包元数据 | P6/低 | 用于兼容 MCUpdater 打包格式的导入 |
+| 文件 SHA256 缓存目录结构 | 不采纳 | 快照方式更适合我们的回滚场景 |
+
+---
+
+## 八、架构变更记录
+
+### P0x 引入后的架构变化
+
+**前（纯 CLI 模式）**：
+```
+管理员本地跑 pack import/publish → repo/ → 文件系统或静态托管
+客户端跑 starter update --remote xxx → 拉 server.json → 按 hash 下载
+```
+
+**后（C/S 模式）**：
+```
+管理员:
+  network: mc-starter-server（独立进程，Windows/Linux）
+        └─ REST API (HTTPS)
+        └─ 多包管理（packA, packB...）
+        └─ 版本发布 + 文件存储
+        └─ 管理端认证（token）
+
+客户端:
+  starter update → 读 config.json → GET /api/v1/...
+       → 拿到增量清单 → 按 hash 下载文件
+       → 零操作
+```
+
+**不兼容变更**：无。`internal/pack/pack.go` 和 `internal/launcher/update.go` 逻辑复用，只是调用方从 CLI 接入换成 HTTP API 接入。旧 CLI 操作仍保留。
+
+---
+
+## 九、P1+P2 阶段经验总结
+
+见 `代码自查与质量规范.md` 和 `详细开发流程.md`。
