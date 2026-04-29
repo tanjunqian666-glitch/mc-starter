@@ -121,8 +121,8 @@ P5 自更新 (2d)                                            ├─ P2.12 TUI界
 
 | ID | 任务 | 预估 | 产出物 |
 |----|------|------|--------|
-| P2.1 | Fabric 安装器下载：BMCLAPI meta API | 2h | `internal/launcher/fabric.go` |
-| P2.2 | Fabric libraries 组装：解析 profile JSON | 4h | `internal/launcher/fabric.go` |
+| P2.1 | Fabric 安装器下载：BMCLAPI meta API | 2h | ✅ `internal/launcher/fabric.go` |
+| P2.2 | Fabric libraries 组装：解析 profile JSON | 4h | ✅ `internal/launcher/fabric.go` |
 | P2.6 | 备份系统：CreateBackup + Rollback | 4h | `internal/repair/backup.go` |
 | P2.7 | 修复命令：repair 命令树 + 清理 | 3h | `internal/repair/repair.go` |
 | P2.8 | 崩溃检测：退出码+崩溃报告+hs_err | 2h | `internal/repair/detector.go` |
