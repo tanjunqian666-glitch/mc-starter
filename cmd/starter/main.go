@@ -855,6 +855,9 @@ func handleCache(args []string) {
 	}
 }
 
+// TODO: 全部功能开发完毕后再实现。包括：
+//   - pcl detect: 调用 FindPCL2() 并写入 local.json pcl2_path
+//   - pcl path <path>: 验证路径有效性后写入 local.json pcl2_path
 func handlePCL(args []string) {
 	if len(args) == 0 {
 		fmt.Println("pcl: subcommand required (detect | path)")
