@@ -111,9 +111,26 @@ func CreateBackup(mcDir string, opts BackupOptions) (*BackupResult, error) {
 		return nil, fmt.Errorf("创建备份根目录失败: %w", err)
 	}
 
-	// 生成备份 ID
+	// 生成备份 ID，如果目录已存在则加序号
 	id := time.Now().Format("20060102_150405")
-	backupPath := filepath.Join(backupRoot, "backup_"+id)
+	baseName := "backup_" + id
+	backupPath := filepath.Join(backupRoot, baseName)
+
+	// 同一秒内创建多个备份时加序号后缀
+	for i := 0; ; i++ {
+		p := backupPath
+		if i > 0 {
+			p = filepath.Join(backupRoot, fmt.Sprintf("%s_%d", baseName, i))
+		}
+		if _, err := os.Stat(p); os.IsNotExist(err) {
+			backupPath = p
+			if i > 0 {
+				id = fmt.Sprintf("%s_%d", id, i)
+			}
+			break
+		}
+	}
+
 	if err := os.MkdirAll(backupPath, 0755); err != nil {
 		return nil, fmt.Errorf("创建备份目录 %s 失败: %w", backupPath, err)
 	}

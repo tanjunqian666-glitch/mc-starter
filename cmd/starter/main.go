@@ -52,8 +52,7 @@ func main() {
 		fs.Parse(os.Args[2:])
 		sync(*cfgDir, *verbose || *verboseShort, *dryRun)
 	case "repair":
-		fs.Parse(os.Args[2:])
-		runRepair(*cfgDir, *headless)
+		runRepair(os.Args[2:], *cfgDir)
 	case "update":
 		fs.Parse(os.Args[2:])
 		handleUpdate(*cfgDir, *verbose || *verboseShort, *dryRun)
@@ -653,10 +652,42 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 	fmt.Printf("\nsync: 完成\n")
 }
 
-func runRepair(cfgDir string, headless bool) {
+func runRepair(args []string, cfgDir string) {
 	logger.Init(false)
 
-	// 加载配置
+	// 解析 repair 子命令的 flag
+	repairFS := flag.NewFlagSet("repair", flag.ExitOnError)
+	clean := repairFS.Bool("clean", false, "全量修复：清空 mods/config/resourcepacks 并重新同步")
+	modsOnly := repairFS.Bool("mods-only", false, "仅修复模组")
+	configOnly := repairFS.Bool("config-only", false, "仅修复配置")
+	loaderOnly := repairFS.Bool("loader-only", false, "仅重新安装 Loader")
+	rollback := repairFS.Bool("rollback", false, "回滚到备份")
+	rollbackID := repairFS.String("rollback-id", "", "回滚到指定备份 ID（不指定则用最新）")
+	listBackups := repairFS.Bool("list-backups", false, "列出所有可用备份")
+	headless := repairFS.Bool("headless", false, "静默模式（不交互）")
+
+	repairFS.Parse(args)
+
+	// 确定操作类型
+	action := repair.ActionInteractive // 默认交互模式
+	switch {
+	case *clean:
+		action = repair.ActionCleanAll
+	case *modsOnly:
+		action = repair.ActionModsOnly
+	case *configOnly:
+		action = repair.ActionConfigOnly
+	case *loaderOnly:
+		action = repair.ActionLoaderOnly
+	case *rollback:
+		action = repair.ActionRollback
+	case *listBackups:
+		action = repair.ActionListBackups
+	}
+
+	_ = headless // 后续实现交互/静默分支
+
+	// 加载配置获取 installPath
 	mg := config.New(cfgDir)
 	localCfg, err := mg.LoadLocal()
 	if err != nil {
@@ -674,67 +705,61 @@ func runRepair(cfgDir string, headless bool) {
 		return
 	}
 
-	// 阶段 0: 创建修复前备份
-	fmt.Println("\n=== 修复工具 ===")
-	fmt.Println("阶段 0: 创建修复前备份...")
-	backupOpts := repair.BackupOptions{
-		Reason: repair.ReasonRepair,
+	// 构建修复配置
+	rCfg := repair.RepairConfig{
+		Action:     action,
+		RollbackID: *rollbackID,
 	}
-	result, err := repair.CreateBackup(installPath, backupOpts)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "备份失败: %v\n", err)
-		fmt.Println("继续修复流程...")
+
+	if action == repair.ActionListBackups || action == repair.ActionRollback {
+		// 列出备份和回滚不需要输出阶段标题
 	} else {
-		fmt.Printf("[✓] 备份完成: %s (%d 个文件, %.1f KB)\n",
-			result.BackupDir, result.FileCount, float64(result.SizeBytes)/1024)
+		fmt.Println("\n=== 修复工具 ===")
 	}
 
-	// 阶段 1: 清理
-	fmt.Println("\n阶段 1: 清理...")
+	// 执行修复
+	result, err := repair.Repair(installPath, rCfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "修复失败: %v\n", err)
+		return
+	}
 
-	// 清理 mods/
-	modsDir := filepath.Join(installPath, "mods")
-	if _, err := os.Stat(modsDir); err == nil {
-		if err := os.RemoveAll(modsDir); err != nil {
-			fmt.Fprintf(os.Stderr, "  清理 mods/ 失败: %v\n", err)
+	// 输出结果
+	switch result.Action {
+	case repair.ActionRollback:
+		if result.Restored > 0 {
+			fmt.Printf("[✓] 已回滚 %d 个文件\n", result.Restored)
 		} else {
-			os.MkdirAll(modsDir, 0755)
-			fmt.Println("  [✓] 已清理 mods/")
+			fmt.Println("未执行回滚")
 		}
-	}
 
-	// 清理 config/
-	configDir := filepath.Join(installPath, "config")
-	if _, err := os.Stat(configDir); err == nil {
-		if err := os.RemoveAll(configDir); err != nil {
-			fmt.Fprintf(os.Stderr, "  清理 config/ 失败: %v\n", err)
+	case repair.ActionListBackups:
+		// Repair 内部已输出列表
+
+	case repair.ActionCleanAll, repair.ActionModsOnly, repair.ActionConfigOnly, repair.ActionLoaderOnly, repair.ActionInteractive:
+		fmt.Println()
+		for _, d := range result.CleanedDirs {
+			fmt.Printf("  [✓] 已清理 %s/\n", d)
+		}
+
+		if result.BackupDir != "" {
+			fmt.Println("\n📦 备份:", result.BackupDir)
+		}
+		if len(result.Errors) > 0 {
+			fmt.Println("\n⚠ 部分操作遇到问题:")
+			for _, e := range result.Errors {
+				fmt.Printf("  - %s\n", e)
+			}
+		}
+
+		// 输出后续步骤
+		if result.Action == repair.ActionLoaderOnly {
+			fmt.Println("\n提示: 请运行 'starter fabric install <mcVer>' 重新安装 Loader")
 		} else {
-			os.MkdirAll(configDir, 0755)
-			fmt.Println("  [✓] 已清理 config/")
+			fmt.Println("\n提示: 请运行 'starter sync' 重新下载模组和配置")
 		}
+		fmt.Println("\n💡 如需回滚: starter repair --rollback")
 	}
-
-	// 阶段 2: 重新同步
-	fmt.Println("\n阶段 2: 重新同步模组和配置...")
-	fmt.Println("  提示: 请运行 'starter sync' 来重新下载模组和配置。")
-	fmt.Println("  如果已配置服务端，会自动同步到服务器版本。")
-
-	// 阶段 3: 备份管理提示
-	backups, _ := repair.ListBackups(installPath)
-	if len(backups) > 0 {
-		fmt.Printf("\n阶段 3: 可用备份 (%d 个)\n", len(backups))
-		for _, b := range backups {
-			fmt.Printf("  - %s (%s, 原因=%s, %d 个文件)\n",
-				b.ID, b.CreatedAt.Format("2006-01-02 15:04:05"),
-				b.Reason, b.FileCount)
-		}
-		fmt.Println("  如需恢复: starter backup restore <id>")
-	}
-
-	fmt.Println("\n=== 修复完成 ===")
-	fmt.Printf("📦 备份位置: %s/%s/\n", installPath, repair.BackupDirName)
-	fmt.Println("💡 如需恢复请运行: starter repair --rollback <id>")
-	fmt.Println()
 }
 
 func handleUpdate(cfgDir string, verbose, dryRun bool) {
