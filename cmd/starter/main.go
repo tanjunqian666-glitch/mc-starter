@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
@@ -66,6 +67,8 @@ func main() {
 		handleFabric(os.Args[2:])
 	case "pcl":
 		handlePCL(os.Args[2:])
+	case "daemon":
+		runDaemon(os.Args[2:], *cfgDir)
 	case "version":
 		fmt.Printf("mc-starter %s\n", version)
 	case "help", "--help", "-h":
@@ -88,6 +91,7 @@ mc-starter — Windows 版 Minecraft 版本管理 & 整合包更新器
   starter sync     仅同步版本 + 模组
   starter update   增量更新（拉取服务端增量清单，按 hash 下文件）
   starter repair   修复工具
+  starter daemon   静默守护模式（后台监控崩溃和日志）
   starter backup   备份管理
     list           列出备份
     restore <name> 恢复指定快照
@@ -1185,6 +1189,72 @@ func handleCache(args []string) {
 	}
 }
 
+// runDaemon 启动静默守护模式
+// 用法: starter daemon [--config <dir>] [--poll <间隔>]
+func runDaemon(args []string, cfgDir string) {
+	logger.Init(false)
+
+	daemonFS := flag.NewFlagSet("daemon", flag.ExitOnError)
+	pollInterval := daemonFS.Duration("poll", 5*time.Second, "轮询间隔")
+	daemonFS.Parse(args)
+
+	// 加载配置
+	mg := config.New(cfgDir)
+	localCfg, err := mg.LoadLocal()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取配置失败: %v\n", err)
+		return
+	}
+
+	installPath := ".minecraft"
+	if localCfg.InstallPath != "" {
+		installPath = localCfg.InstallPath
+	}
+
+	fmt.Println("\n=== 静默守护 ===")
+	fmt.Printf("监控目录: %s\n", installPath)
+	fmt.Printf("轮询间隔: %v\n", *pollInterval)
+	fmt.Println("按 Ctrl+C 退出守护")
+
+	// 创建守护
+	d := repair.NewDaemon(repair.DaemonConfig{
+		MinecraftDir: installPath,
+		PollInterval: *pollInterval,
+		OnEvent: func(event repair.DaemonEvent, data interface{}) {
+			switch event {
+			case repair.EventCrashDetected:
+				if ev, ok := data.(repair.CrashEvent); ok {
+					fmt.Printf("\n[崩溃检测] %s (%s)\n", ev.Reason, ev.Type)
+					fmt.Printf("  文件: %s\n", ev.FilePath)
+				}
+			case repair.EventLogError:
+				if s, ok := data.(string); ok {
+					fmt.Printf("\n[日志异常] %s\n", s)
+				}
+			case repair.EventProcessExited:
+				fmt.Println("\n[进程退出] 监控目标已退出")
+			case repair.EventMCStarted:
+				if p, ok := data.(repair.WatchedProcess); ok {
+					fmt.Printf("\n[进程启动] %s (PID=%d)\n", p.Name, p.PID)
+				}
+			}
+		},
+	})
+
+	// 启动
+	if err := d.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "守护启动失败: %v\n", err)
+		return
+	}
+	defer d.Stop()
+
+	// 等待 Ctrl+C
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt)
+	<-sigCh
+	fmt.Println("\n守护已停止")
+}
+
 // handleFabric 处理 fabric 子命令
 func handleFabric(args []string) {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
@@ -1295,9 +1365,7 @@ func handleFabric(args []string) {
 	}
 }
 
-// TODO: 全部功能开发完毕后再实现。包括：
-//   - pcl detect: 调用 FindPCL2() 并写入 local.json pcl2_path
-//   - pcl path <path>: 验证路径有效性后写入 local.json pcl2_path
+// handlePCL 处理 pcl 子命令
 func handlePCL(args []string) {
 	if len(args) == 0 {
 		fmt.Println("pcl: subcommand required (detect | path)")

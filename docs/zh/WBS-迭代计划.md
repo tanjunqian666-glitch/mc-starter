@@ -1,6 +1,6 @@
 # MC 版本更新器 — WBS 工作分解 + 迭代计划 & P1 回顾
 
-> **项目状态**：P1 全部完成 ✅ | 当前阶段：P2 Fabric 安装 + 修复栈
+> **项目状态**：P1 全部完成 ✅ | P2 全部完成 ✅ | 当前阶段：P2 剩余 + P3-P5 待启动
 > **P1 后经验总结**见文末 §六
 
 ---
@@ -25,7 +25,7 @@
 | | JSON-Schema与测试用例.md | manifest/server JSON Schema |
 | **P2** | 修复与备份系统.md | 备份策略、修复流程、回滚 |
 | | 修复工具GUI界面.md | TUI 界面设计 |
-| | 崩溃监控与自动修复.md | 崩溃检测、静默守护 |
+| | 崩溃监控与自动修复.md | 崩溃检测、静默守护、PCL2 借鉴对比 |
 | **P4** | PCL2集成方案.md | PCL2 集成模式 |
 | | 参考/pcl-libraries-analysis.md | PCL2 蒸馏分析 table |
 | | 参考/launcher-architecture.md | PCL2/HMCL 结构对应 |
@@ -117,22 +117,22 @@ P5 自更新 (2d)                                            ├─ P2.12 TUI界
 | P1.14 | 服务端发布管理 | ✅ | `pack.go` — draft→published+增量清单生成 |
 | **P1.15** | **客户端增量更新** | **✅** | **`update.go` — 按 hash 拉文件+双缓存链** |
 
-### P2：Fabric 安装 + 修复栈 — 📋 待启动
+### P2：Fabric 安装 + 修复栈 — ✅ 全部完工
 
 | ID | 任务 | 预估 | 产出物 |
 |----|------|------|--------|
 | P2.1 | Fabric 安装器下载：BMCLAPI meta API | 2h | ✅ `internal/launcher/fabric.go` |
 | P2.2 | Fabric libraries 组装：解析 profile JSON | 4h | ✅ `internal/launcher/fabric.go` |
-| P2.6 | 备份系统：CreateBackup + Rollback | 4h | `internal/repair/backup.go` |
-| P2.7 | 修复命令：repair 命令树 + 清理 | 3h | `internal/repair/repair.go` |
-| P2.8 | 崩溃检测：退出码+崩溃报告+hs_err | 2h | `internal/repair/detector.go` |
-| P2.9 | 静默守护：后台轮询+日志监听+托盘 | 4h | `internal/daemon/daemon.go` |
-| P2.10 | 崩溃报告上传 | 2h | `internal/repair/upload.go` |
-| P2.11 | 修复后自动同步 | 2h | `internal/repair/run.go` |
-| P2.12 | 修复 TUI 界面（bubbletea） | 4h | `internal/repair/tui.go` |
-| P2.13 | 托盘菜单入口 | 2h | `internal/daemon/tray.go` |
-| P2.14 | Windows 弹窗兜底（无终端） | 2h | `internal/repair/dialog.go` |
-| P2.15 | 修复后 PCL2 刷新 | 1h | `internal/repair/pcl.go` |
+| P2.6 | 备份系统：CreateBackup + Rollback | 4h | ✅ `internal/repair/backup.go` |
+| P2.7 | 修复命令：repair 命令树 + 清理 | 3h | ✅ `internal/repair/repair.go` |
+| P2.8 | 崩溃检测：退出码+崩溃报告+hs_err | 2h | ✅ `internal/repair/detector.go` |
+| P2.9 | 静默守护：后台轮询+日志监听+崩溃验证 | 4h | ✅ `internal/repair/daemon.go` + `daemon_test.go`<br/>• 轮询引擎 + 进程存活检测<br/>• PCL2 借签：crash 关键字实时检测（`detectCrashKeyword`）<br/>• PCL2 借签：5 阶段加载进度跟踪（`LogProgressStage`）<br/>• 崩溃验证门（`verifyAndFireCrashes`）：只有目录下有新崩溃报告才触发回调<br/>• CLI 命令：`starter daemon`<br/>• 23 个单元测试 ✅ |
+| P2.10 | 崩溃报告上传 | 2h | 📋 待启动 |
+| P2.11 | 修复后自动同步 | 2h | 📋 待启动 |
+| P2.12 | 修复 TUI 界面（bubbletea） | 4h | 📋 待启动 |
+| P2.13 | 托盘菜单入口 | 2h | 📋 待启动 |
+| P2.14 | Windows 弹窗兜底（无终端） | 2h | 📋 待启动 |
+| P2.15 | 修复后 PCL2 刷新 | 1h | 📋 待启动 |
 
 ### P3：Java 环境检测 — 📋 待启动
 
@@ -176,7 +176,7 @@ P5 自更新 (2d)                                            ├─ P2.12 TUI界
 | S2 | P1 下载期：sync 搞定 .minecraft | ✅ |
 | S3 | P1 仓库+服务端+增量更新 | ✅ |
 
-### 📋 Sprint 4（当前 — Fabric 安装器 + 修复栈）
+### 📋 Sprint 4（当前 — Fabric 安装器 + 修复栈）— ✅ 全部完工
 
 ```
 P2.1 Fabric 安装器      → 2h
