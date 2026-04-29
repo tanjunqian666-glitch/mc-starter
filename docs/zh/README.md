@@ -28,11 +28,21 @@
 | `starter run --headless` | 静默模式，不交互 |
 | `starter init` | 初始化本地配置 |
 | `starter check` | 检查 Java / PCL2 / 配置完整性 |
-| `starter sync` | 仅同步，不拉 PCL2 |
-| `starter pcl detect` | 手动检测 PCL2.exe 位置 |
+| `starter sync` | 同步 MC 版本（jar/asset/library）+ 创建仓库快照 |
+| `starter backup list` | 查看本地版本快照列表 |
+| `starter backup create <name>` | 创建本地版本快照 |
+| `starter backup restore <name>` | 从快照恢复 |
+| `starter backup delete <name>` | 删除快照 |
+| `starter cache stats` | 查看缓存统计 |
+| `starter cache clean` | 清理未引用的缓存文件 |
+| `starter cache prune` | 强制清理所有缓存 |
+| `starter pack import <zip>` | **服务端** 导入整合包 zip → 差异分析 → 生成 draft |
+| `starter pack publish` | **服务端** 发布 draft 版本 |
+| `starter pack diff <v1> <v2>` | **服务端** 比较两个版本的差异 |
+| `starter pack list` | **服务端** 列出版本历史 |
+| `starter pcl detect` | 手动检测 PCL2.exe 位置（4 层渐进检测） |
 | `starter pcl path <路径>` | 手动设置 PCL2 路径 |
 | `starter version` | 显示版本信息 |
-| `starter self-update` | 更新启动器自身 |
 
 ## 文档目录
 

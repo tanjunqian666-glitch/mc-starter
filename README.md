@@ -22,11 +22,16 @@
 | Command | Description |
 |---|---|
 | `starter run` | Full auto: detect → sync → integrate → launch PCL2 |
-| `starter init` | Initialize local config |
+| `starter sync` | Sync MC version (jar/asset/library) + create repo snapshot |
 | `starter check` | Check Java / PCL2 / config integrity |
-| `starter sync` | Sync version + mods only |
-| `starter repair` | Repair tool |
-| `starter pcl detect` | Find PCL2.exe |
+| `starter init` | Initialize local config |
+| `starter backup list \| create \| restore \| delete` | Local repo snapshot management |
+| `starter cache stats \| clean \| prune` | CacheStore management |
+| `starter pack import <zip>` | Server-side: import modpack zip → diff → draft |
+| `starter pack publish` | Server-side: publish draft version |
+| `starter pack diff <v1> <v2>` | Server-side: compare two versions |
+| `starter pack list` | Server-side: list version history |
+| `starter pcl detect` | Find PCL2.exe (4-layer progressive detection) |
 | `starter pcl path <path>` | Set PCL2 path manually |
 | `starter version` | Show version |
 
