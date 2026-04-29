@@ -19,10 +19,10 @@ import (
 // Minecraft 的 libraries 是 version.json 中声明的 Java 依赖库。
 // 每个 LibraryEntry 包含 Maven 坐标、下载信息、平台规则等。
 // 处理流程:
-//   1. 解析 Maven 坐标 → 下载 URL
-//   2. 匹配 rules → 判断当前平台是否需要该库
-//   3. 下载 artifact JAR 或 natives JAR
-//   4. 对于 natives，解压提取 .dll/.so/.dylib
+//  1. 解析 Maven 坐标 → 下载 URL
+//  2. 匹配 rules → 判断当前平台是否需要该库
+//  3. 下载 artifact JAR 或 natives JAR
+//  4. 对于 natives，解压提取 .dll/.so/.dylib
 //
 // Maven 坐标格式: "group:artifact:version"（有时带 classifier）
 // 下载 URL: {maven_url}/{group_path}/{artifact}/{version}/{artifact}-{version}(-classifier).jar
@@ -149,11 +149,11 @@ func (m *LibraryManager) resolveNatives(lib LibraryEntry, coords *MavenArtifact)
 
 // MavenArtifact Maven 坐标解析结果
 type MavenArtifact struct {
-	Group     string // group
-	Artifact  string // artifact ID
-	Version   string // version
+	Group      string // group
+	Artifact   string // artifact ID
+	Version    string // version
 	Classifier string // classifier（可选，如 "natives-windows"）
-	Extension string // 扩展名（默认 "jar"）
+	Extension  string // 扩展名（默认 "jar"）
 }
 
 // ParseMavenCoords 解析 Maven 坐标字符串
@@ -182,9 +182,10 @@ func ParseMavenCoords(name string) *MavenArtifact {
 // MavenURL 从 Maven 坐标和仓库基 URL 生成下载地址
 // 路径规则: {base_url}/{group_path}/{artifact}/{version}/{artifact}-{version}(-{classifier}).{ext}
 // 例:
-//   base="https://libraries.minecraft.net"
-//   coords="org.lwjgl:lwjgl:3.3.1"
-//   → https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar
+//
+//	base="https://libraries.minecraft.net"
+//	coords="org.lwjgl:lwjgl:3.3.1"
+//	→ https://libraries.minecraft.net/org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar
 func MavenURL(baseURL string, coords *MavenArtifact) string {
 	groupPath := strings.ReplaceAll(coords.Group, ".", "/")
 	ext := coords.Extension
@@ -228,12 +229,12 @@ func (m *LibraryManager) MavenLocalPath(coords *MavenArtifact) string {
 // 规则逻辑（参考 PCL McJsonRuleCheck）：
 //   - 空 rules → 总是包含（无限制）
 //   - 有 rules → 逐条计算，allow/disallow
-//     - action="allow" 且规则匹配 → 标记为允许
-//     - action="disallow" 且规则匹配 → 标记为禁止（覆盖 allow）
-//     - 无 os/features 限制的规则：匹配所有情况
+//   - action="allow" 且规则匹配 → 标记为允许
+//   - action="disallow" 且规则匹配 → 标记为禁止（覆盖 allow）
+//   - 无 os/features 限制的规则：匹配所有情况
 //   - 最终：如果存在 allow 规则且至少一个匹配 → 允许
-//          如果存在 disallow 规则且至少一个匹配 → 禁止
-//          没有任何 allow 规则匹配 → 不允许
+//     如果存在 disallow 规则且至少一个匹配 → 禁止
+//     没有任何 allow 规则匹配 → 不允许
 //
 // 支持的匹配维度：
 //   - os.name: "windows" / "osx" / "linux"（精确匹配）
@@ -487,11 +488,11 @@ func (m *LibraryManager) DownloadLibraries(libraries []LibraryEntry) ([]string, 
 // DownloadNatives 下载并解压 natives
 // Natives 是平台特定的动态库 (.dll/.so/.dylib)，需要从 JAR 中解压出来
 // 处理流程:
-//   1. 检查 lib.natives[windiws] 确定 classifier（如 "natives-windows"）
-//   2. 从 downloads.classifiers[classifier] 获取下载信息
-//   3. 下载 JAR 到临时路径
-//   4. 解压 JAR 中的 .dll/.so/.dylib 到 nativesDir
-//   5. 删除临时 JAR
+//  1. 检查 lib.natives[windiws] 确定 classifier（如 "natives-windows"）
+//  2. 从 downloads.classifiers[classifier] 获取下载信息
+//  3. 下载 JAR 到临时路径
+//  4. 解压 JAR 中的 .dll/.so/.dylib 到 nativesDir
+//  5. 删除临时 JAR
 func (m *LibraryManager) DownloadNatives(lib LibraryEntry) error {
 	if lib.Natives == nil {
 		return nil
@@ -591,7 +592,11 @@ func extractNatives(jarPath, destDir string) error {
 	if err != nil {
 		return fmt.Errorf("打开 JAR 失败: %w", err)
 	}
-	defer reader.Close()
+	defer func() {
+		if err := reader.Close(); err != nil {
+			logger.Warn("关闭 JAR ZIP reader 失败: %v", err)
+		}
+	}()
 
 	var extracted int
 	for _, f := range reader.File {
@@ -653,6 +658,7 @@ func extractZipFile(f *zip.File, destPath string) error {
 // classpath 是启动 Java 时的 -cp 参数，包含:
 //   - 所有 libraries 的 JAR 路径
 //   - client.jar 的路径
+//
 // 在 Windows 上用 ";" 分隔，其他系统用 ":" （但我们 Windows only）
 func BuildClasspath(libraryPaths []string, clientJar string) string {
 	separator := string(filepath.ListSeparator) // Windows: ";", others: ":"
@@ -743,5 +749,3 @@ func (m *LibraryManager) GetNativesDir() string {
 func (m *LibraryManager) SetDownloadDir(dir string) {
 	m.downloadDir = dir
 }
-
-

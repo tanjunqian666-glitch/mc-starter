@@ -20,11 +20,11 @@ const (
 )
 
 var (
-	mu       sync.RWMutex
-	level    = LevelInfo
-	verbose  = false
-	logFile  io.Writer
-	logger   = log.New(os.Stderr, "", log.LstdFlags)
+	mu      sync.RWMutex
+	level   = LevelInfo
+	verbose = false
+	logFile io.Writer
+	logger  = log.New(os.Stderr, "", log.LstdFlags)
 )
 
 // Init 初始化日志系统

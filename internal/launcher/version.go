@@ -67,20 +67,21 @@ type AssetIndexRef struct {
 //   - natives: 声明哪些 classifier 是本机库（需要解压提取 .dll/.so）
 //
 // Maven 坐标转下载 URL 规则:
-//   group 中的 "." → "/"
-//   最终 URL: {maven_url}/{group_path}/{artifact}/{version}/{artifact}-{version}.jar
-//   例: "org.lwjgl:lwjgl:3.3.1" → org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar
+//
+//	group 中的 "." → "/"
+//	最终 URL: {maven_url}/{group_path}/{artifact}/{version}/{artifact}-{version}.jar
+//	例: "org.lwjgl:lwjgl:3.3.1" → org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar
 type LibraryEntry struct {
-	Name      string            `json:"name"`      // Maven 坐标
+	Name      string            `json:"name"`          // Maven 坐标
 	URL       string            `json:"url,omitempty"` // Maven 仓库基 URL（Fabric 格式用到）
 	Downloads *LibraryDownloads `json:"downloads,omitempty"`
-	Rules     []Rule            `json:"rules,omitempty"`  // 空 = 全部平台都适用
+	Rules     []Rule            `json:"rules,omitempty"`   // 空 = 全部平台都适用
 	Natives   map[string]string `json:"natives,omitempty"` // e.g. {"windows": "natives-windows"}
 }
 
 // LibraryDownloads 库文件下载信息
 type LibraryDownloads struct {
-	Artifact    *DownloadEntry            `json:"artifact,omitempty"`
+	Artifact    *DownloadEntry           `json:"artifact,omitempty"`
 	Classifiers map[string]DownloadEntry `json:"classifiers,omitempty"`
 }
 
@@ -90,10 +91,11 @@ type LibraryDownloads struct {
 // 多个 rules 之间是 OR 关系（任一匹配即生效）。
 //
 // 典型用法:
-//   {"action": "allow", "os": {"name": "windows"}}  // 仅 Windows
-//   {"action": "disallow", "os": {"name": "osx"}}    // 排除 macOS
-//   {"action": "allow"}                               // 所有平台
-//   空 rules 数组 = 所有平台都适用（无限制）
+//
+//	{"action": "allow", "os": {"name": "windows"}}  // 仅 Windows
+//	{"action": "disallow", "os": {"name": "osx"}}    // 排除 macOS
+//	{"action": "allow"}                               // 所有平台
+//	空 rules 数组 = 所有平台都适用（无限制）
 //
 // 注意：Mojang 的 rules 支持 os.version 正则匹配（如 "10\\.0\\..*"）、
 // os.arch 架构判断（"x86" vs 默认 64 位）、以及 features 标签（如 is_demo_user）。
@@ -127,11 +129,13 @@ type RuleFeatures struct {
 // arguments.game 和 arguments.jvm 都是数组，元素可以是字符串或 Rule 对象
 //
 // 启动格式:
-//   java [JVM args] mainClass [game args]
+//
+//	java [JVM args] mainClass [game args]
 //
 // 需要替换的占位符:
-//   JVM: ${natives_directory}, ${classpath}, ${launcher_name}, ...
-//   Game: ${auth_player_name}, ${version_name}, ${assets_root}, ...
+//
+//	JVM: ${natives_directory}, ${classpath}, ${launcher_name}, ...
+//	Game: ${auth_player_name}, ${version_name}, ${assets_root}, ...
 type Arguments struct {
 	Game []interface{} `json:"game,omitempty"`
 	JVM  []interface{} `json:"jvm,omitempty"`

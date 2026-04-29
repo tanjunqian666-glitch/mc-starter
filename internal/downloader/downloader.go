@@ -15,9 +15,10 @@ import (
 // Downloader 文件下载器
 // 支持重试 + SHA256 校验。
 // 注意: Minecraft Asset index 中的 hash 是 SHA1，不是 SHA256。
-//       调用者应根据资源类型自行决定是否传 hash 参数：
-//       - version_manifest / version.json / client.jar → 用 downloader 的 SHA256? 错，这些也是 SHA1
-//       实际上 File() 的 expectedHash 是 SHA256 参数，调用方传入空字符串 "" 后自行校验即可。
+//
+//	调用者应根据资源类型自行决定是否传 hash 参数：
+//	- version_manifest / version.json / client.jar → 用 downloader 的 SHA256? 错，这些也是 SHA1
+//	实际上 File() 的 expectedHash 是 SHA256 参数，调用方传入空字符串 "" 后自行校验即可。
 type Downloader struct {
 	client  *http.Client
 	retries int

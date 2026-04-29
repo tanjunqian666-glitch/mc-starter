@@ -37,16 +37,16 @@ type SyncState struct {
 	mu sync.RWMutex
 
 	VersionID     string    `json:"version_id"`      // 目标 MC 版本 ID
-	Completed     []string  `json:"completed"`        // 已完成的阶段列表
-	AssetCount    int       `json:"asset_count"`      // 已下载的 Asset 文件数
-	LibraryCount  int       `json:"library_count"`    // 已下载的 Library 文件数
-	FailedAssets  []string  `json:"failed_assets"`    // 上次失败的 Asset hash
-	FailedLibs    []string  `json:"failed_libs"`      // 上次失败的 Library 名
-	StartedAt     time.Time `json:"started_at"`       // 本次 sync 开始时间
-	LastUpdatedAt time.Time `json:"last_updated_at"`  // 最后更新时间
+	Completed     []string  `json:"completed"`       // 已完成的阶段列表
+	AssetCount    int       `json:"asset_count"`     // 已下载的 Asset 文件数
+	LibraryCount  int       `json:"library_count"`   // 已下载的 Library 文件数
+	FailedAssets  []string  `json:"failed_assets"`   // 上次失败的 Asset hash
+	FailedLibs    []string  `json:"failed_libs"`     // 上次失败的 Library 名
+	StartedAt     time.Time `json:"started_at"`      // 本次 sync 开始时间
+	LastUpdatedAt time.Time `json:"last_updated_at"` // 最后更新时间
 
-	cacheDir  string // 缓存目录
-	filePath  string // 状态文件路径
+	cacheDir string // 缓存目录
+	filePath string // 状态文件路径
 }
 
 // NewSyncState 创建 sync 状态追踪器
@@ -279,7 +279,9 @@ func (s *SyncState) save() {
 		logger.Warn("写入 sync 状态临时文件失败: %v", err)
 		return
 	}
-	os.Rename(tmpPath, s.filePath)
+	if err := os.Rename(tmpPath, s.filePath); err != nil {
+		logger.Warn("原子重命名 sync 状态文件失败: %v", err)
+	}
 }
 
 // IsStaleEx 检查特定 age 是否过期（用于自定义超时）

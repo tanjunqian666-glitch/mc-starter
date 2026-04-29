@@ -213,7 +213,7 @@ func TestCacheCleanDryRun(t *testing.T) {
 	cs.Put(srcB, "hash-b")
 
 	deleted, _, errs := cs.Clean(CleanOptions{
-		DryRun: true,
+		DryRun:     true,
 		KeepHashes: map[string]bool{"hash-a": true},
 	})
 	if len(errs) > 0 {

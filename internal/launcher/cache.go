@@ -35,9 +35,9 @@ import (
 
 // CacheMeta 缓存元信息
 type CacheMeta struct {
-	Version    int              `json:"version"`     // 缓存格式版本
-	Entries    map[string]int64 `json:"entries"`     // hash → last_access (Unix ts)
-	RefCounts  map[string]int   `json:"ref_counts"`  // hash → 引用次数
+	Version    int              `json:"version"`    // 缓存格式版本
+	Entries    map[string]int64 `json:"entries"`    // hash → last_access (Unix ts)
+	RefCounts  map[string]int   `json:"ref_counts"` // hash → 引用次数
 	TotalFiles int64            `json:"total_files"`
 	TotalSize  int64            `json:"total_size"`
 	CreatedAt  time.Time        `json:"created_at"`
@@ -46,11 +46,11 @@ type CacheMeta struct {
 
 // CacheStore 文件缓存
 type CacheStore struct {
-	mu        sync.RWMutex
-	baseDir   string // 缓存根目录
-	filesDir  string // files/ 目录
-	indexDir  string // indexes/ 目录
-	meta      *CacheMeta
+	mu       sync.RWMutex
+	baseDir  string // 缓存根目录
+	filesDir string // files/ 目录
+	indexDir string // indexes/ 目录
+	meta     *CacheMeta
 }
 
 // NewCacheStore 创建文件缓存
@@ -60,7 +60,7 @@ func NewCacheStore(cacheDir string) *CacheStore {
 		baseDir:  cacheDir,
 		filesDir: filepath.Join(cacheDir, "files"),
 		indexDir: filepath.Join(cacheDir, "indexes"),
-		meta:     &CacheMeta{
+		meta: &CacheMeta{
 			Entries:   make(map[string]int64),
 			RefCounts: make(map[string]int),
 		},
@@ -195,10 +195,10 @@ func (cs *CacheStore) HasIndex(name string) bool {
 
 // CleanOptions 缓存清理选项
 type CleanOptions struct {
-	DryRun       bool     // 仅显示不删除
-	MinRefCount  int      // 低于此引用数的删除（默认 0 = 无引用才删）
-	MaxAge       time.Duration // 超过此时间未访问的删除（0 = 不过期）
-	KeepHashes   map[string]bool // 强制保留的 hash
+	DryRun      bool            // 仅显示不删除
+	MinRefCount int             // 低于此引用数的删除（默认 0 = 无引用才删）
+	MaxAge      time.Duration   // 超过此时间未访问的删除（0 = 不过期）
+	KeepHashes  map[string]bool // 强制保留的 hash
 }
 
 // DefaultCleanOptions 默认清理选项
@@ -403,7 +403,9 @@ func (cs *CacheStore) saveMeta() {
 		logger.Warn("写入缓存元临时文件失败: %v", err)
 		return
 	}
-	os.Rename(tmpPath, path)
+	if err := os.Rename(tmpPath, path); err != nil {
+		logger.Warn("原子重命名缓存元文件失败: %v", err)
+	}
 }
 
 // ============================================================

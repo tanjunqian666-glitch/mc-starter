@@ -49,6 +49,8 @@ func main() {
 		repair(*cfgDir, *headless)
 	case "backup":
 		handleBackup(os.Args[2:])
+	case "cache":
+		handleCache(os.Args[2:])
 	case "pcl":
 		handlePCL(os.Args[2:])
 	case "version":
@@ -77,6 +79,10 @@ mc-starter — Windows 版 Minecraft 版本管理 & 整合包更新器
     restore <name> 恢复指定快照
     create         手动创建备份
     delete <name>  删除快照
+  starter cache    缓存管理
+    stats          显示缓存统计
+    clean [--dry-run] [--min-ref <n>]  清理缓存
+    prune [--dry-run]  清理 orphaned 缓存
   starter pcl      操作 PCL2
     detect         检测 PCL2.exe 位置
     path <path>    设置 PCL2 路径
@@ -756,6 +762,96 @@ func handleBackupDelete(args []string) {
 	fmt.Printf("[✓] 快照 %s 已删除\n", snapshotName)
 }
 
+func handleCache(args []string) {
+	if len(args) == 0 {
+		fmt.Println("cache: subcommand required (stats | clean | prune)")
+		return
+	}
+
+	cfgDir := "config"
+	// 从 args 中解析 --config
+	remaining := args
+	for i := 0; i < len(remaining); i++ {
+		if remaining[i] == "--config" && i+1 < len(remaining) {
+			cfgDir = remaining[i+1]
+			i++
+		}
+	}
+
+	mg := config.New(cfgDir)
+	localCfg, err := mg.LoadLocal()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取配置失败: %v\n", err)
+		return
+	}
+	installPath := ".minecraft"
+	if localCfg.InstallPath != "" {
+		installPath = localCfg.InstallPath
+	}
+
+	switch args[0] {
+	case "stats":
+		cacheDir := filepath.Join(cfgDir, ".cache", "mc_cache")
+		cs := launcher.NewCacheStore(cacheDir)
+		fmt.Println(cs.Stats())
+
+	case "clean":
+		dryRun := false
+		minRef := 0
+		for i := 1; i < len(args); i++ {
+			switch args[i] {
+			case "--dry-run":
+				dryRun = true
+			case "--min-ref":
+				if i+1 < len(args) {
+					fmt.Sscanf(args[i+1], "%d", &minRef)
+					i++
+				}
+			}
+		}
+		cacheDir := filepath.Join(cfgDir, ".cache", "mc_cache")
+		cs := launcher.NewCacheStore(cacheDir)
+		opts := launcher.CleanOptions{
+			DryRun:      dryRun,
+			MinRefCount: minRef,
+		}
+		deleted, freed, errs := cs.Clean(opts)
+		if len(errs) > 0 {
+			for _, e := range errs {
+				logger.Warn("清理错误: %v", e)
+			}
+		}
+		if dryRun {
+			fmt.Printf("[DRY-RUN] 将删除 %d 个文件, 释放 %.1f KB\n", deleted, float64(freed)/1024)
+		} else {
+			fmt.Printf("[✓] 缓存清理: 删除 %d 个文件, 释放 %.1f KB\n", deleted, float64(freed)/1024)
+		}
+
+	case "prune":
+		dryRun := false
+		for i := 1; i < len(args); i++ {
+			if args[i] == "--dry-run" {
+				dryRun = true
+			}
+		}
+		is := launcher.NewIncrementalSync(cfgDir, installPath)
+		deleted, freed, errs := is.CleanOrphaned(dryRun)
+		if len(errs) > 0 {
+			for _, e := range errs {
+				logger.Warn("prune 错误: %v", e)
+			}
+		}
+		if dryRun {
+			fmt.Printf("[DRY-RUN] 将删除 %d 个 orphaned 文件, 释放 %.1f KB\n", deleted, float64(freed)/1024)
+		} else {
+			fmt.Printf("[✓] Orphaned 清理: 删除 %d 个文件, 释放 %.1f KB\n", deleted, float64(freed)/1024)
+		}
+
+	default:
+		fmt.Printf("cache: unknown subcommand %s\n", args[0])
+	}
+}
+
 func handlePCL(args []string) {
 	if len(args) == 0 {
 		fmt.Println("pcl: subcommand required (detect | path)")
@@ -781,7 +877,7 @@ func ensureConfig(cfgDir string) error {
 	_, err := mg.LoadLocal()
 	if err != nil {
 		// 生成默认配置
-	local := &model.LocalConfig{
+		local := &model.LocalConfig{
 			InstallPath: ".minecraft",
 			Launcher:    "bare",
 			Memory:      4096,

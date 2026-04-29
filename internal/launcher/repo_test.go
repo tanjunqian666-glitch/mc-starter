@@ -650,4 +650,3 @@ func TestRestoreSnapshotOverwrites(t *testing.T) {
 		t.Errorf("内容应被覆盖为原始内容: 期望 %s, 得到 %s", string(originalContent), string(restored))
 	}
 }
-

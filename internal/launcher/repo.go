@@ -75,12 +75,12 @@ type SnapshotManifest struct {
 
 // LocalRepo 本地版本仓库
 type LocalRepo struct {
-	mu         sync.RWMutex
-	baseDir    string // starter_repo/ 目录
+	mu           sync.RWMutex
+	baseDir      string // starter_repo/ 目录
 	snapshotsDir string // starter_repo/snapshots/
-	filesDir   string // starter_repo/files/
-	currentDir string // starter_repo/current (symlink)
-	meta       *RepoMeta
+	filesDir     string // starter_repo/files/
+	currentDir   string // starter_repo/current (symlink)
+	meta         *RepoMeta
 }
 
 // NewLocalRepo 创建/加载本地仓库
@@ -469,10 +469,10 @@ func (r *LocalRepo) CleanCache(referencedHashes map[string]bool, dryRun bool) (d
 
 // DiffResult 两个快照间的差异计算结果
 type DiffResult struct {
-	Added    []DiffFile `json:"added"`     // 新增的文件
-	Updated  []DiffFile `json:"updated"`   // hash 发生变化的文件
-	Deleted  []DiffFile `json:"deleted"`   // 已被删除的文件
-	Unchanged int       `json:"unchanged"` // 未变化的文件数
+	Added     []DiffFile `json:"added"`     // 新增的文件
+	Updated   []DiffFile `json:"updated"`   // hash 发生变化的文件
+	Deleted   []DiffFile `json:"deleted"`   // 已被删除的文件
+	Unchanged int        `json:"unchanged"` // 未变化的文件数
 }
 
 // DiffFile 差异文件信息

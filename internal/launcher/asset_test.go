@@ -10,9 +10,9 @@ import (
 // sampleAssetIndex 示例 Asset 索引
 var sampleAssetIndex = AssetIndex{
 	Objects: map[string]AssetObject{
-		"icons/icon_16x16.png":         {Hash: "bdf48ef6b5d0d23bbb02e17d04865216179f510a", Size: 3665},
-		"minecraft/lang/zh_cn.json":    {Hash: "abc123def456abc123def456abc123def456abc1", Size: 123456},
-		"minecraft/sounds/block/stone/hit1.ogg": {Hash: "def789abc123def789abc123def789abc123def7", Size: 5678},
+		"icons/icon_16x16.png":                       {Hash: "bdf48ef6b5d0d23bbb02e17d04865216179f510a", Size: 3665},
+		"minecraft/lang/zh_cn.json":                  {Hash: "abc123def456abc123def456abc123def456abc1", Size: 123456},
+		"minecraft/sounds/block/stone/hit1.ogg":      {Hash: "def789abc123def789abc123def789abc123def7", Size: 5678},
 		"minecraft/textures/gui/title/minecraft.png": {Hash: "1111112222223333334444445555556666667777", Size: 89123},
 	},
 }
@@ -24,8 +24,8 @@ func TestObjectURL(t *testing.T) {
 	}{
 		{"bdf48ef6b5d0d23bbb02e17d04865216179f510a", "https://resources.download.minecraft.net/bd/bdf48ef6b5d0d23bbb02e17d04865216179f510a"},
 		{"abc", "https://resources.download.minecraft.net/ab/abc"},
-		{"a", ""},  // 短于 2 字符
-		{"", ""},   // 空字符串
+		{"a", ""}, // 短于 2 字符
+		{"", ""},  // 空字符串
 	}
 
 	for _, tt := range tests {

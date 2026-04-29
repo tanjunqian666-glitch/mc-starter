@@ -43,10 +43,10 @@ func NewIncrementalSync(cfgDir, mcDir string) *IncrementalSync {
 	repo := NewLocalRepo(mcDir)
 
 	return &IncrementalSync{
-		cache: cache,
-		repo:  repo,
+		cache:  cache,
+		repo:   repo,
 		cfgDir: cfgDir,
-		mcDir: mcDir,
+		mcDir:  mcDir,
 	}
 }
 
@@ -193,8 +193,8 @@ func (is *IncrementalSync) DiffSinceSnapshot(snapshotName string, scanDirs []str
 
 	// 扫描当前文件系统，带着目录前缀以使路径匹配快照格式
 	newManifest := &SnapshotManifest{
-		Version:   "current",
-		Files:     make(map[string]RepoFileEntry),
+		Version: "current",
+		Files:   make(map[string]RepoFileEntry),
 	}
 	for _, dir := range scanDirs {
 		scanPath := filepath.Join(is.mcDir, dir)

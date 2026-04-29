@@ -7,12 +7,13 @@ import "strings"
 // BMCLAPI (bangbang93) 是国内最主流的 Minecraft 文件镜像。
 //
 // 各端点的功能：
-//   Manifest   — 版本清单 (version_manifest_v2.json)
-//   Version    — 版本元数据 (version.json)
-//   Asset      — 资源文件 (音效/纹理等，通过 SHA1 前 2 位分目录)
-//   Library    — Java 库文件 (Maven 仓库镜像)
-//   FabricMeta — Fabric Loader 元数据 API
-//   FabricMaven — Fabric Maven 仓库
+//
+//	Manifest   — 版本清单 (version_manifest_v2.json)
+//	Version    — 版本元数据 (version.json)
+//	Asset      — 资源文件 (音效/纹理等，通过 SHA1 前 2 位分目录)
+//	Library    — Java 库文件 (Maven 仓库镜像)
+//	FabricMeta — Fabric Loader 元数据 API
+//	FabricMaven — Fabric Maven 仓库
 type Mirror struct {
 	Manifest    string
 	Version     string
@@ -25,8 +26,9 @@ type Mirror struct {
 // DefaultMirrors 各模式镜像映射
 // global: Mojang 官方 + Fabric 官方
 // china:  BMCLAPI (bangbang93) — 国内最核心的 MC 镜像
-//         注意: 实测从国外访问 BMCLAPI 偶发 HTTP 525/522，
-//         调用方应准备 fallback 到官方源
+//
+//	注意: 实测从国外访问 BMCLAPI 偶发 HTTP 525/522，
+//	调用方应准备 fallback 到官方源
 var DefaultMirrors = map[string]Mirror{
 	"global": {
 		Manifest:    "https://piston-meta.mojang.com",

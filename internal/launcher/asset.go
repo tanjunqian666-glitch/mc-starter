@@ -14,9 +14,9 @@ import (
 
 // AssetIndex Asset 索引
 type AssetIndex struct {
-	Objects    map[string]AssetObject `json:"objects"`
-	Virtual    bool                   `json:"virtual,omitempty"`
-	fetchedAt  time.Time              `json:"-"`
+	Objects   map[string]AssetObject `json:"objects"`
+	Virtual   bool                   `json:"virtual,omitempty"`
+	fetchedAt time.Time              `json:"-"`
 }
 
 // AssetObject 单个 Asset 文件
