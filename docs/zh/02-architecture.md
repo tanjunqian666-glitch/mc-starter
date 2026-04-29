@@ -1,83 +1,207 @@
-# 架构说明
+# 02-architecture.md — 系统架构说明（更新：C/S 架构 + 多包管理）
 
-## P1.9 增量同步
+> **注意**：此架构说明仅描述客户端架构（mc-starter）。服务端架构见 `服务端架构与部署.md`。
 
-### 思路
+---
 
-P1.6-P1.8 已经建好了基础设施：
-- **P1.6 (sync_state)**: 阶段级断点恢复 — 知道哪些阶段已完成
-- **P1.7 (repo)**: 本地版本仓库 — 快照+差异计算+文件缓存
-- **P1.8 (cache store)**: 独立文件缓存 — 按 hash 去重，引用计数管理
-
-P1.9 把这三者整合到 `sync` 命令中，实现增量同步：
-
-1. **version.json / client.jar** → 用 CacheStore 缓存
-2. **Asset files** → 用 CacheStore 缓存，跳过已有
-3. **Libraries** → 用 CacheStore 缓存
-4. **repo 快照** → 创建全量/增量快照，差异同步
-
-### sync 命令新流程
+## 一、总体架构
 
 ```
-sync:
-  phase0: 拉取版本清单 + 确定目标版本
-  phase1: 尝试断点恢复（P1.6）
-  phase2: 拉取 version meta（P1.6）
-  phase3: 下载 client.jar（缓存加速，P1.9）
-  phase4: Asset index + Asset 文件（三级检查：磁盘→CacheStore→下载）
-  phase5: Libraries + Natives（CacheStore 分流）
-  phase6: 创建/更新 repo 快照（P1.9 新增）
-  complete: 标记完成 + 清理状态文件
+                    ┌──────────────────────────────┐
+                    │   mc-starter-server           │
+                    │   (独立进程, Windows/Linux)   │
+                    │                              │
+                    │   REST API v1                │
+                    │   ├─ 客户端端 (/api/v1/)     │
+                    │   │  packs, latest, update   │
+                    │   │  files/{hash}            │
+                    │   ├─ 管理端 (/api/v1/admin/) │
+                    │   │  import, publish, config │
+                    │   │  versions, delete        │
+                    │   └─ 健康检查 (/api/v1/ping) │
+                    │                              │
+                    │   存储层                      │
+                    │   ├─ packs/ (多包索引)        │
+                    │   └─ versions/ (版本目录)     │
+                    └──────────┬───────────────────┘
+                               │ HTTPS
+                               ▼
+                    ┌──────────────────────────────┐
+                    │   mc-starter (客户端 CLI)     │
+                    │                              │
+                    │   ┌─ update ───────────────┐ │
+                    │   │ 拉取 server API →       │ │
+                    │   │ 增量清单 → 按 hash 下载 │ │
+                    │   │ CacheStore 去重         │ │
+                    │   │ 多包管理 (主包/副包)    │ │
+                    │   └────────────────────────┘ │
+                    │   ┌─ sync ─────────────────┐ │
+                    │   │ Mojang 原版 MC 下载     │ │
+                    │   │ (version/asset/library) │ │
+                    │   │ 镜像选择, 断点恢复      │ │
+                    │   └────────────────────────┘ │
+                    │   ┌─ repair ───────────────┐ │
+                    │   │ 备份/修复/崩溃检测      │ │
+                    │   │ 静默守护, 托盘菜单      │ │
+                    │   └────────────────────────┘ │
+                    │   ┌─ TUI ──────────────────┐ │
+                    │   │ 全自动模式 (双击场景)   │ │
+                    └──────────────────────────────┘
 ```
 
-### Asset 三级检查流程
+## 二、模块职责
+
+| 模块 | 包 | 职责 |
+|------|---|------|
+| CLI 入口 | `cmd/starter/main.go` | 子命令分发，1600 行（后续拆 cmd_*.go） |
+| 配置 | `internal/config/` | 读写 local.json（本地偏好）/ server.json（服务端下发） |
+| 模型 | `internal/model/` | 通用数据类型（LibraryFile, PackConfig, ClientConfig） |
+| 下载器 | `internal/downloader/` | HTTP GET + hash 校验，两端共用 |
+| 镜像 | `internal/mirror/` | 智能镜像选择（MC 原版文件：BMCLAPI/MCBBS/官方） |
+| 启动器 | `internal/launcher/` | 核心包：version/asset/library/fabric/sync/repo/cache/update |
+| 服务端包管理 | `internal/pack/` | zip 导入/diff/publish（被 server 二进制引用） |
+| 修复 | `internal/repair/` | backup/repair/detector/daemon |
+| TUI | `internal/tui/` | 全自动模式 bubbletea 界面 |
+| 日志 | `internal/logger/` | 分级日志输出 |
+
+## 三、sync 与 update 的关系
 
 ```
-下载 Asset 文件时:
-  ① 检查本地磁盘 (assets/objects/hh/hash)         → 已存在→跳过
-  ② 检查 CacheStore (config/.cache/mc_cache/files/)  → 命中→复制到磁盘
-  ③ 下载 → 存入 CacheStore → 写入磁盘
+sync（MC 原版）                     update（整合包）
+────────                          ────────
+拉 Mojang 版本清单                   拉服务端 /api/v1/packs 列表
+下载 MC jar                         对比本地版本
+下载 asset + library                下载增量文件（按 hash）
+创建 .minecraft/versions/           写入 packs/{name}/...
+初始化 repo 快照                    更新 repo 快照
+                               ───  两者独立运行 ───
 ```
 
-### Library 缓存分流流程
+## 四、数据流
 
 ```
-① 将所有 LibraryFile 传入 ConsumeLibraryFiles()
-② 有 SHA1 的查 CacheStore：
-   - 命中 → 复制到目标路径，记为 fromCache
-   - 未命中 → 加入 toDownload 列表
-③ 无 SHA1 的 → 直接加入 toDownload 列表
-④ toDownload 传入 lm.DownloadFiles() 下载
-⑤ 下载成功后将 SHA1 写回 CacheStore
+管理员:
+  mc-starter-server start
+    → 监听 :8443 (HTTPS)
+    → 加载 packs/ 索引
+    → 等待管理请求
+
+  上传 zip:
+    POST /api/v1/admin/packs/main-pack/import
+    → 服务端解包扫描 → 生成 draft
+    → 对比上一版本 → 返回差异
+
+  发布:
+    POST /api/v1/admin/packs/main-pack/publish
+    → draft → published
+    → 包文件按 hash 存储到 files/
+    → 更新 packs/ 索引
+
+客户端:
+  starter update
+    → GET /api/v1/packs
+    → 对比本地 packs 配置
+    → 对主包 + 已启用副包:
+       GET /api/v1/packs/{name}/update?from={ver}
+       → 拿到增量 (added/updated/removed)
+       → 按 hash: 先查 CacheStore → 再 GET /files/{hash}
+       → 写入 packs/{name}/{path}
+       → 更新 repo 快照
 ```
 
-### 新组件
+## 五、服务端目录结构
 
-**IncrementalSync** — `internal/launcher/incr_sync.go`
-- 把 CacheStore 接入 asset/library 下载流程
-- 在 sync 命令的 asset 和 library 阶段注入缓存检查
-- 在 sync 最后创建/更新 repo 快照
+```
+/var/mc-starter/
+├── packs/
+│   ├── index.json                    ← 所有包索引（名称/display/primary）
+│   └── main-pack/
+│       ├── meta.json                 ← 包元信息
+│       ├── server.json               ← 客户端拉取的入口
+│       ├── versions/
+│       │   ├── v1.0.0/manifest.json
+│       │   ├── v1.1.0/manifest.json
+│       │   └── v1.2.0.draft/manifest.json
+│       └── files/                    ← 按 hash 存储
+│           ├── a1/b2/c3d4...
+│           └── ...
+├── server.yml                        ← 服务端配置
+└── data/                             ← 运行时数据
+```
 
-### 踩坑记录
+## 六、本地客户端目录结构
 
-1. **ScanDirectory 路径不匹配**：`DiffSinceSnapshot` 中用 `ScanDirectory` 生成的文件 key 是相对于扫描根目录的（如 `sodium.jar`），但 snapshot manifest 中的 key 是 `dir + "/" + filename` 格式（如 `mods/sodium.jar`）。两边 key 不一致导致差异计算无变化。
+```
+config/
+├── local.json                        ← 本地配置（MC目录/server_url/packs）
+├── server.json                       ← 服务端下发配置缓存
+└── .cache/
+    ├── manifest/                     ← MC 版本清单缓存
+    └── mc_cache/                     ← CacheStore
 
-   修复：用手动 `filepath.Walk` + `dir + "/" + info.Name()` 拼接，与 `CreateFullSnapshot` 的格式一致。
+.minecraft/
+├── versions/                         ← MC 版本目录
+├── assets/                           ← MC 资源文件
+├── libraries/                        ← MC 库文件
+├── packs/                            ← 整合包目录
+│   ├── main-pack/                    ← 主包
+│   │   ├── mods/
+│   │   └── config/
+│   └── extra-content/                ← 副包（需启用）
+│       └── mods/
+└── starter_repo/                     ← 本地仓库（快照/缓存）
+```
 
-2. **copyFile 未导出**：`repo.go` 的 `copyFile()` 未导出（小写），`main.go` 引用不了。在 `cmd/main.go` 中改为 `os.ReadFile + os.WriteFile`。
+## 七、客户端配置格式
 
-3. **refs 变量未使用**：`CleanOrphaned` 中收集了 `refs`（来自 `ReferencedHashes()`）但未传给 `CleanOptions.KeepHashes`，导致 Go 编译器报错。修复：正确传递。
+```json
+{
+  "minecraft_dir": "/home/user/.minecraft",
+  "server_url": "https://mc.example.com:8443",
+  "server_token": "",
+  "packs": {
+    "main-pack": {
+      "enabled": true,
+      "status": "synced",
+      "local_version": "v1.2.0",
+      "dir": "packs/main-pack"
+    },
+    "extra-content": {
+      "enabled": false,
+      "status": "none",
+      "local_version": "",
+      "dir": "packs/extra-content"
+    }
+  }
+}
+```
 
-### P1 已实现清单
+## 八、状态记录
+
+### 已完工
 
 | ID | 状态 | 文件 |
 |----|------|------|
-| P1.0-P1.5 | ✅ | version.go, asset.go, library.go, downloader.go |
-| P1.6 断点恢复 | ✅ | sync_state.go |
-| P1.7 本地仓库 | ✅ | repo.go |
-| P1.8 文件缓存 | ✅ | cache.go |
-| P1.9 增量同步 | ✅ | incr_sync.go |
-| P1.10 快照回滚 | ✅ (合入P1.7) | repo.go: RestoreSnapshot |
-| P1.11 全局缓存 | ✅ (合入P1.8) | cache.go: CacheStore独立 |
-| P1.12-P1.14 zip | ✅ | internal/pack/ (服务端: 解包→diff→发布) |
-| P1.15 客户端增量 | ⏳ | — |
+| P0.1-P0.6 | ✅ | CLI框架/配置/下载器/日志/镜像 |
+| P1.1-P1.15 | ✅ | MC 下载/仓库/缓存/增量更新/服务端包管理 |
+| P2.1-P2.2 | ✅ | Fabric 安装器 + libraries |
+| P2.6-P2.9 | ✅ | 备份/修复/崩溃检测/静默守护 |
+| P2.12 (超前) | ✅ | TUI 界面 |
+
+### 当前阶段
+
+| 阶段 | 状态 | 说明 |
+|------|------|------|
+| P0x 服务端骨架 | 🎯 当前 | 独立 server + REST API + 多包管理 |
+| P2.x 剩余修复细化 | 📋 | 上传/同步/TUI 集成/托盘 |
+| P5 启动器兼容 | 📋 | PCL2/HMCL 集成 |
+| P6 频道体系 | 📋 | 多频道/可选安装 |
+| P3 自更新 | 📋 | 自身版本管理 |
+
+## 九、版本记录
+
+| 版本 | 日期 | 变更 |
+|------|------|------|
+| v2 | 2026-04-30 | 新增 C/S 架构 + 多包管理模式说明 |
+| v1.1 | 2026-04-29 | 更新 P1/P2 完工状态 |
+| v1 | 2026-04-28 | 初版（纯 CLI 架构） |

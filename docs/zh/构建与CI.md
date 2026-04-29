@@ -1,6 +1,7 @@
 # MC-Starter — 构建与 CI
 
-> Windows only build pipeline
+> 双二进制：`starter`（客户端 CLI）+ `mc-starter-server`（服务端）
+> Windows build pipeline for client, cross-platform for server
 
 ---
 
@@ -15,10 +16,13 @@
 ### 1.2 构建命令
 
 ```bash
-# 开发构建 （带控制台窗口，方便调试）
+# 客户端（开发）
 make build
 
-# 发布构建 （无控制台窗口，双击运行）
+# 服务端
+make build-server
+
+# 发布构建（客户端，无控制台窗口）
 make build-release
 
 # 查看二进制体积
@@ -26,19 +30,37 @@ make size
 
 # 运行测试
 make test
+
+# 全部构建
+make all
 ```
 
 ### 1.3 直接使用 Go
 
 ```bash
-# 开发版
+# 客户端（开发版）
 go build -ldflags="-s -w -X main.version=dev" -o build/starter.exe ./cmd/starter/
 
-# 发布版（隐藏控制台窗口）
+# 服务端
+go build -ldflags="-s -w" -o build/mc-starter-server ./cmd/mc-starter-server/
+
+# 客户端（发布版，隐藏控制台窗口）
 GOOS=windows GOARCH=amd64 go build \
     -ldflags="-s -w -X main.version=1.0.0 -H windowsgui" \
     -o build/starter-1.0.0-x64.exe \
     ./cmd/starter/
+
+# 服务端（Linux）
+GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-s -w" \
+    -o build/mc-starter-server-linux-amd64 \
+    ./cmd/mc-starter-server/
+
+# 服务端（Windows）
+GOOS=windows GOARCH=amd64 go build \
+    -ldflags="-s -w" \
+    -o build/mc-starter-server.exe \
+    ./cmd/mc-starter-server/
 ```
 
 ### 1.4 手动压缩
@@ -59,12 +81,19 @@ upx --best build/starter.exe
 
 ```makefile
 APP = starter
+SERVER = mc-starter-server
 BUILD_DIR = build
 VERSION = $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
+all: build build-server
+
 build:
 	go build -ldflags="-s -w -X main.version=$(VERSION)" \
-	  -o $(BUILD_DIR)/$(APP).exe ./cmd/starter/
+	  -o $(BUILD_DIR)/$(APP) ./cmd/starter/
+
+build-server:
+	go build -ldflags="-s -w" \
+	  -o $(BUILD_DIR)/$(SERVER) ./cmd/mc-starter-server/
 
 build-release:
 	GOOS=windows GOARCH=amd64 go build \
