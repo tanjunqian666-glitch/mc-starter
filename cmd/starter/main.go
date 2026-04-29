@@ -876,193 +876,190 @@ func handlePCL(args []string) {
 
 func handlePack(args []string) {
 	if len(args) == 0 {
-		fmt.Println("pack: subcommand required (sync | diff)")
+		fmt.Println("pack: subcommand required (import | publish | diff | list)")
 		return
 	}
 	switch args[0] {
-	case "sync":
-		handlePackSync(args[1:])
+	case "import":
+		handlePackImport(args[1:])
+	case "publish":
+		handlePackPublish(args[1:])
 	case "diff":
 		handlePackDiff(args[1:])
-	case "extract":
-		handlePackExtract(args[1:])
+	case "list":
+		handlePackList(args[1:])
 	default:
 		fmt.Printf("pack: unknown subcommand %s\n", args[0])
 	}
 }
 
-func handlePackSync(args []string) {
-	fs := flag.NewFlagSet("pack sync", flag.ExitOnError)
-	cfgDir := fs.String("config", "./config", "配置目录")
-	verbose := fs.Bool("verbose", false, "详细日志")
-	dryRun := fs.Bool("dry-run", false, "仅检查不下载")
-	hash := fs.String("hash", "", "期望的 SHA256 校验值")
+func handlePackImport(args []string) {
+	fs := flag.NewFlagSet("pack import", flag.ExitOnError)
+	repoDir := fs.String("repo", "./publish", "发布仓库目录")
 	fs.Parse(args)
 
-	if *verbose {
-		logger.Init(true)
+	if fs.NArg() < 1 {
+		fmt.Println("用法: starter pack import <zip_path> [--repo <dir>]")
+		fmt.Println("示例: starter pack import ./cjc-pack-v1.2.0.zip --repo /data/mc-starter/repo")
+		return
 	}
 
-	// 读取 server.json
-	mg := config.New(*cfgDir)
-	serverCfg, err := mg.LoadServer()
+	zipPath := fs.Arg(0)
+	if _, err := os.Stat(zipPath); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "文件不存在: %s\n", zipPath)
+		return
+	}
+
+	// 确保 repo 存在
+	if err := pack.EnsureRepo(*repoDir); err != nil {
+		fmt.Fprintf(os.Stderr, "初始化仓库失败: %v\n", err)
+		return
+	}
+
+	result, err := pack.ImportZip(zipPath, *repoDir, "")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "读取 server.json 失败: %v\n", err)
-		fmt.Println("请先创建 config/server.json")
+		fmt.Fprintf(os.Stderr, "导入失败: %v\n", err)
 		return
 	}
 
-	if len(serverCfg.Modpacks) == 0 {
-		fmt.Println("server.json 中未配置 modpacks")
+	fmt.Println("\n=== 导入结果 ===")
+	fmt.Printf("zip: %s (%d 个文件, %.1f MB)\n", zipPath, result.Manifest.FileCount, float64(result.Manifest.TotalSize)/1024/1024)
+	if result.MCVersion != "" {
+		fmt.Printf("MC 版本: %s\n", result.MCVersion)
+	}
+	if result.Loader != "" {
+		fmt.Printf("Loader: %s\n", result.Loader)
+	}
+	fmt.Printf("版本: %s\n", result.Version)
+
+	if result.Diff != nil {
+		fmt.Printf("\n差异对比 (相对 %s):\n", result.PrevVersion)
+		if len(result.Diff.Added) > 0 {
+			for _, e := range result.Diff.Added[:minInt(len(result.Diff.Added), 5)] {
+				fmt.Printf("  + %s (%.1f KB)\n", e.Path, float64(e.Size)/1024)
+			}
+			if len(result.Diff.Added) > 5 {
+				fmt.Printf("  ... (+%d more)\n", len(result.Diff.Added)-5)
+			}
+		}
+		if len(result.Diff.Removed) > 0 {
+			for _, e := range result.Diff.Removed[:minInt(len(result.Diff.Removed), 5)] {
+				fmt.Printf("  - %s (%.1f KB)\n", e.Path, float64(e.Size)/1024)
+			}
+			if len(result.Diff.Removed) > 5 {
+				fmt.Printf("  ... (-%d more)\n", len(result.Diff.Removed)-5)
+			}
+		}
+		if len(result.Diff.Updated) > 0 {
+			for _, e := range result.Diff.Updated[:minInt(len(result.Diff.Updated), 5)] {
+				fmt.Printf("  ~ %s (%.1f KB)\n", e.Path, float64(e.Size)/1024)
+			}
+			if len(result.Diff.Updated) > 5 {
+				fmt.Printf("  ... (~%d more)\n", len(result.Diff.Updated)-5)
+			}
+		}
+		diffBytes := result.Diff.TotalDiffBytes()
+		fmt.Printf("\n增量大小: %.1f MB (全量 %.1f MB 的 %.0f%%)\n",
+			float64(diffBytes)/1024/1024,
+			float64(result.Manifest.TotalSize)/1024/1024,
+			float64(diffBytes)/float64(result.Manifest.TotalSize)*100)
+	}
+
+	fmt.Printf("\n状态: [draft] %s\n", result.Version)
+	fmt.Println("\n运行 `starter pack publish` 确认发布")
+}
+
+func handlePackPublish(args []string) {
+	fs := flag.NewFlagSet("pack publish", flag.ExitOnError)
+	repoDir := fs.String("repo", "./publish", "发布仓库目录")
+	version := fs.String("version", "", "版本号（空=发布最新 draft）")
+	message := fs.String("message", "", "发布说明")
+	fs.Parse(args)
+
+	if err := pack.EnsureRepo(*repoDir); err != nil {
+		fmt.Fprintf(os.Stderr, "初始化仓库失败: %v\n", err)
 		return
 	}
 
-	// 读取 install path
-	localCfg, _ := mg.LoadLocal()
-	installDir := ".minecraft"
-	if localCfg.InstallPath != "" {
-		installDir = localCfg.InstallPath
+	if err := pack.PublishDraft(*repoDir, *version, *message); err != nil {
+		fmt.Fprintf(os.Stderr, "发布失败: %v\n", err)
+		return
 	}
 
-	sm := pack.NewSyncManager()
-
-	for _, mp := range serverCfg.Modpacks {
-		if mp.Source != "url" || mp.Slug == "" {
-			continue
-		}
-		// 根据 Source 确定 URL: "url" 类型从 Files[0] 取 URL
-		sourceURL := ""
-		if len(mp.Files) > 0 {
-			sourceURL = mp.Files[0]
-		}
-		if sourceURL == "" {
-			fmt.Printf("[!] modpack %s: 未配置 source URL\n", mp.Slug)
-			continue
-		}
-
-		effectiveHash := *hash
-		if effectiveHash == "" && serverCfg.SelfUpdate != nil && serverCfg.SelfUpdate.Version != "" {
-			effectiveHash = serverCfg.SelfUpdate.Version
-		}
-
-		fmt.Printf("\n=== 同步整合包: %s ===\n", mp.Slug)
-		logger.Info("pack sync: %s (%s)", mp.Slug, sourceURL)
-
-		if *dryRun {
-			// dry-run 只下载+计算，不应用
-			tempDir := filepath.Join(installDir, ".starter_cache", "pack", mp.Slug)
-			handler := pack.NewZipHandler()
-			if effectiveHash != "" {
-				handler.WithHash(effectiveHash)
-			}
-			result, err := handler.DownloadAndExtract(sourceURL, tempDir, mp.Slug)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "[✗] %s: %v\n", mp.Slug, err)
-				continue
-			}
-			defer result.Cleanup()
-
-			fmt.Printf("  解压了 %d 个文件\n", len(result.Entries))
-
-			// 如果没有指定 targets，默认 mods 和 config
-			targets := []string{"mods", "config"}
-			for _, target := range targets {
-				diff := pack.ComputeDiff(result.Entries, installDir, target)
-				if diff.HasChanges() {
-					fmt.Printf("  [%s] %s\n", target, diff.Summary())
-					pack.PrintPendingSyncDiff(map[string]*pack.DiffResult{target: diff})
-				} else {
-					fmt.Printf("  [%s] 已是最新\n", target)
-				}
-			}
-			continue
-		}
-
-		// 执行同步
-		syncResult, err := sm.SyncFromURL(sourceURL, installDir, mp.Slug, []string{"mods", "config"}, effectiveHash)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[✗] %s 同步失败: %v\n", mp.Slug, err)
-			continue
-		}
-		fmt.Printf("  %s\n", syncResult.Summary())
-	}
-
-	fmt.Println("\npack sync: 完成")
+	fmt.Println("[✓] 发布成功")
 }
 
 func handlePackDiff(args []string) {
 	fs := flag.NewFlagSet("pack diff", flag.ExitOnError)
-	cfgDir := fs.String("config", "./config", "配置目录")
-	zipPath := fs.String("zip", "", "本地 zip 文件路径")
+	repoDir := fs.String("repo", "./publish", "发布仓库目录")
 	fs.Parse(args)
 
-	if *zipPath == "" {
-		fmt.Println("用法: starter pack diff --zip <path> [--config <dir>]")
+	if fs.NArg() < 2 {
+		fmt.Println("用法: starter pack diff <v1> <v2> [--repo <dir>]")
+		fmt.Println("示例: starter pack diff v1.0.0 v1.1.0 --repo /data/mc-starter/repo")
 		return
 	}
 
-	mg := config.New(*cfgDir)
-	localCfg, _ := mg.LoadLocal()
-	installDir := ".minecraft"
-	if localCfg.InstallPath != "" {
-		installDir = localCfg.InstallPath
-	}
+	fromVer, toVer := fs.Arg(0), fs.Arg(1)
 
-	handler := pack.NewZipHandler()
-	tempDir := filepath.Join(installDir, ".starter_cache", "pack", "diff-tmp")
-	result, err := handler.ExtractExisting(*zipPath, tempDir, "diff")
+	diff, err := pack.DiffVersions(*repoDir, fromVer, toVer)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "解压失败: %v\n", err)
+		fmt.Fprintf(os.Stderr, "获取 diff 失败: %v\n", err)
 		return
 	}
-	defer result.Cleanup()
 
-	fmt.Printf("zip 文件: %s (%d 个文件)\n", *zipPath, len(result.Entries))
-
-	for _, target := range []string{"mods", "config"} {
-		diff := pack.ComputeDiff(result.Entries, installDir, target)
-		fmt.Printf("\n=== [%s] %s ===\n", target, diff.Summary())
-		if diff.HasChanges() {
-			pack.PrintPendingSyncDiff(map[string]*pack.DiffResult{target: diff})
-		} else {
-			fmt.Println("  无变更")
+	fmt.Printf("差异 %s → %s:\n", fromVer, toVer)
+	fmt.Printf("  %s\n", diff.Summary())
+	if len(diff.Added) > 0 {
+		fmt.Println("  新增:")
+		for _, e := range diff.Added {
+			fmt.Printf("    + %s\n", e.Path)
+		}
+	}
+	if len(diff.Removed) > 0 {
+		fmt.Println("  删除:")
+		for _, e := range diff.Removed {
+			fmt.Printf("    - %s\n", e.Path)
+		}
+	}
+	if len(diff.Updated) > 0 {
+		fmt.Println("  更新:")
+		for _, e := range diff.Updated {
+			fmt.Printf("    ~ %s\n", e.Path)
 		}
 	}
 }
 
-func handlePackExtract(args []string) {
-	fs := flag.NewFlagSet("pack extract", flag.ExitOnError)
-	zipPath := fs.String("zip", "", "本地 zip 文件路径")
-	outDir := fs.String("out", "", "输出目录（默认 zip 同级）")
+func handlePackList(args []string) {
+	fs := flag.NewFlagSet("pack list", flag.ExitOnError)
+	repoDir := fs.String("repo", "./publish", "发布仓库目录")
 	fs.Parse(args)
 
-	if *zipPath == "" {
-		fmt.Println("用法: starter pack extract --zip <path> [--out <dir>]")
-		return
-	}
-
-	dest := *outDir
-	if dest == "" {
-		dest = filepath.Join(filepath.Dir(*zipPath), "extracted")
-	}
-
-	handler := pack.NewZipHandler()
-	result, err := handler.ExtractExisting(*zipPath, dest, "extract")
+	drafts, published, err := pack.ListVersions(*repoDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "解压失败: %v\n", err)
+		fmt.Fprintf(os.Stderr, "列出版本失败: %v\n", err)
 		return
 	}
-	defer result.Cleanup()
 
-	fmt.Printf("解压完成: %d 个文件 → %s\n", len(result.Entries), result.TempRoot)
+	fmt.Println("=== 版本历史 ===")
+	if len(drafts) == 0 && len(published) == 0 {
+		fmt.Println("(空)")
+		return
+	}
 
-	// 列一些文件
-	for _, entry := range result.Entries[:min(len(result.Entries), 10)] {
-		fmt.Printf("  %s (%d KB)\n", entry.RelPath, entry.Size/1024)
+	for _, v := range published {
+		fmt.Printf("  [published] %s\n", v)
 	}
-	if len(result.Entries) > 10 {
-		fmt.Printf("  ... (%d more)\n", len(result.Entries)-10)
+	for _, v := range drafts {
+		fmt.Printf("  [draft]     %s\n", v)
 	}
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // ensureConfig 确保配置文件存在，不存在则创建默认配置

@@ -79,4 +79,5 @@ sync:
 | P1.9 增量同步 | ✅ | incr_sync.go |
 | P1.10 快照回滚 | ✅ (合入P1.7) | repo.go: RestoreSnapshot |
 | P1.11 全局缓存 | ✅ (合入P1.8) | cache.go: CacheStore独立 |
-| P1.12-P1.14 zip | ⏳ | — |
+| P1.12-P1.14 zip | ✅ | internal/pack/ (服务端: 解包→diff→发布) |
+| P1.15 客户端增量 | ⏳ | — |

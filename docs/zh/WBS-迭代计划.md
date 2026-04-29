@@ -68,9 +68,10 @@ P3 Java检测 (1d)          →  P4 启动器兼容 (3d)   →  P5 自更新 (2d
 | P1.9 | 增量同步算法：diff 计算 + 增量快照生成 | 4h | P1.8 | internal/repo/diff.go |
 | P1.10 | 快照回滚：从快照链还原指定版本 | 2h | P1.9 | internal/repo/rollback.go |
 | P1.11 | 全局缓存（跨整合包复用） | 2h | P1.8 | internal/repo/global.go |
-| P1.12 | zip 包下载 + 解压 + hash 校验 | 3h | P0.5 | internal/pack/zip.go |
-| P1.13 | zip 内容 diff 同步（对比 + 覆盖 + 删除） | 3h | P1.12 | internal/pack/diff.go |
-| P1.14 | zip 与仓库整合（增量 + 缓存复用） | 2h | P1.9, P1.12 | internal/pack/sync.go |
+| P1.12 | zip 解包 + 文件扫描 + hash 计算（服务端） | 3h | P0.5 | internal/pack/zip.go |
+| P1.13 | 新旧版本差异分析（服务端） | 3h | P1.12 | internal/pack/diff.go |
+| P1.14 | 发布管理：draft/published 版本管理（服务端） | 2h | P1.13 | internal/pack/sync.go |
+| P1.15 | 客户端增量更新（按 hash 拉单个文件） | 4h | P1.14 | internal/launcher/update.go |
 | **P1 合计** | | **39h** | | |
 
 **P1 验收**：首次 `./starter sync` 全量下载整合包 zip → 解压 → 后续只差异化同步
