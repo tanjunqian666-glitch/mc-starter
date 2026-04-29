@@ -5,8 +5,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/gege-tlph/mc-starter/internal/logger"
@@ -463,3 +465,161 @@ func FindPCL2() *PCLDetection {
 	}
 	return result
 }
+
+// ============================================================
+// PCL 配置读取 — 版本目录查找
+// ============================================================
+
+// ReadPCLConfig 读取 PCL 配置中的 LaunchFolders
+// 从 PCL.ini 或注册表读取 .minecraft 目录列表
+// 格式: "名称1>路径1|名称2>路径2"
+func (p *PCLDetection) ReadPCLConfig() (*PCLConfig, error) {
+	cfg := &PCLConfig{
+		detection: p,
+	}
+
+	// 优先读 PCL.ini（便携版）
+	if p.PCLIniPath != "" {
+		data, err := os.ReadFile(p.PCLIniPath)
+		if err == nil {
+			cfg.rawINI = string(data)
+		}
+	}
+
+	// 解析 LaunchFolders（优先 ini，其次是注册表）
+	foldersStr := cfg.readKey("LaunchFolders")
+	if foldersStr == "" {
+		return cfg, nil // 没有配置，返回空列表
+	}
+
+	// 解析: "名称1>C:\xxx|名称2>D:\yyy"
+	for _, part := range strings.Split(foldersStr, "|") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		idx := strings.Index(part, ">")
+		if idx < 0 {
+			continue
+		}
+		path := part[idx+1:]
+		path = filepath.Clean(path)
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			// 确保路径指向 .minecraft 目录（含 versions 子目录）
+			versionsDir := filepath.Join(path, "versions")
+			if vi, err := os.Stat(versionsDir); err == nil && vi.IsDir() {
+				cfg.MinecraftDirs = append(cfg.MinecraftDirs, path)
+			}
+		}
+	}
+
+	// 如果没有找到任何有效的 LaunchFolders，检查默认路径
+	if len(cfg.MinecraftDirs) == 0 {
+		defaultDir := p.defaultMinecraftDir()
+		if defaultDir != "" {
+			cfg.MinecraftDirs = append(cfg.MinecraftDirs, defaultDir)
+		}
+	}
+
+	return cfg, nil
+}
+
+// ReadPCLManagedDirs 直接使用 PCL 检测结果读取管理的版本目录
+func ReadPCLManagedDirs(detection *PCLDetection) ([]string, error) {
+	cfg, err := detection.ReadPCLConfig()
+	if err != nil {
+		return nil, err
+	}
+	return cfg.MinecraftDirs, nil
+}
+
+// PCLConfig PCL 配置信息
+type PCLConfig struct {
+	detection    *PCLDetection
+	rawINI       string
+	MinecraftDirs []string // .minecraft 目录列表
+}
+
+// readKey 从 ini 或注册表读取 PCL 设置项
+func (c *PCLConfig) readKey(key string) string {
+	// 先从 ini 读
+	if c.rawINI != "" {
+		for _, line := range strings.Split(c.rawINI, "\n") {
+			line = strings.TrimSpace(line)
+			lowerLine := strings.ToLower(line)
+			lowerKey := strings.ToLower(key)
+			if strings.HasPrefix(lowerLine, lowerKey+"=") {
+				val := line[len(key)+1:]
+				val = strings.Trim(val, "\" ")
+				if val != "" {
+					return val
+				}
+			}
+			if strings.HasPrefix(lowerLine, lowerKey+":") {
+				val := line[len(key)+1:]
+				val = strings.Trim(val, "\" ")
+				if val != "" {
+					return val
+				}
+			}
+		}
+	}
+
+	// 没找到或者没 ini 时，尝试读注册表（仅 Windows）
+	regPath := "HKCU\\Software\\PCL"
+	val, err := readWindowsReg(regPath, key)
+	if err == nil && val != "" {
+		return val
+	}
+
+	return ""
+}
+
+// readWindowsReg 读取 Windows 注册表（仅 Windows，非 Windows 返回空）
+func readWindowsReg(keyPath, valueName string) (string, error) {
+	if runtime.GOOS != "windows" {
+		return "", fmt.Errorf("readWindowsReg: not on windows")
+	}
+	cmd := exec.Command("reg", "query", keyPath, "/v", valueName)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	// 解析输出: "    value_name    REG_SZ    value_data"
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "REG_SZ") || strings.Contains(line, "REG_EXPAND_SZ") {
+			parts := strings.Fields(line)
+			if len(parts) >= 4 {
+				return strings.Join(parts[3:], " "), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("value not found")
+}
+
+// defaultMinecraftDir 默认 .minecraft 路径
+func (p *PCLDetection) defaultMinecraftDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	// PCL 默认 .minecraft 在 PCL 同目录
+	pclDir := filepath.Dir(p.Path)
+	candidates := []string{
+		filepath.Join(pclDir, ".minecraft"),
+		filepath.Join(home, ".minecraft"),
+		filepath.Join(home, "AppData", "Roaming", ".minecraft"),
+	}
+	for _, c := range candidates {
+		if info, err := os.Stat(c); err == nil && info.IsDir() {
+			versionsDir := filepath.Join(c, "versions")
+			if vi, err := os.Stat(versionsDir); err == nil && vi.IsDir() {
+				return c
+			}
+		}
+	}
+	return ""
+}
+

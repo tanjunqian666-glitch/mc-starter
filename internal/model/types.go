@@ -42,10 +42,11 @@ type SelfUpdate struct {
 
 // LocalConfig 用户本地偏好配置
 type LocalConfig struct {
-	InstallPath string `json:"install_path,omitempty" yaml:"install_path,omitempty"`
-	Launcher    string `json:"launcher,omitempty" yaml:"launcher,omitempty"` // "bare" | "pcl2" | "hmcl"
-	JavaHome    string `json:"java_home,omitempty" yaml:"java_home,omitempty"`
-	Memory      int    `json:"memory,omitempty" yaml:"memory,omitempty"`
-	Username    string `json:"username,omitempty" yaml:"username,omitempty"`
-	MirrorMode  string `json:"mirror_mode,omitempty" yaml:"mirror_mode,omitempty"` // "auto" | "china" | "global"
+	InstallPath      string   `json:"install_path,omitempty" yaml:"install_path,omitempty"`
+	Launcher         string   `json:"launcher,omitempty" yaml:"launcher,omitempty"` // "bare" | "pcl2" | "hmcl"
+	JavaHome         string   `json:"java_home,omitempty" yaml:"java_home,omitempty"`
+	Memory           int      `json:"memory,omitempty" yaml:"memory,omitempty"`
+	Username         string   `json:"username,omitempty" yaml:"username,omitempty"`
+	MirrorMode       string   `json:"mirror_mode,omitempty" yaml:"mirror_mode,omitempty"` // "auto" | "china" | "global"
+	ManagedVersions  []string `json:"managed_versions,omitempty" yaml:"managed_versions,omitempty"` // 当前管理的版本名列表
 }
