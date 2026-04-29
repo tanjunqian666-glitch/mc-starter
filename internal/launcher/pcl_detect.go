@@ -304,20 +304,107 @@ func (d *PCLDetector) computeHash(path string) string {
 }
 
 // defaultSearchPaths 返回默认搜索路径列表（Windows 下）
+// 策略：找快捷方式（用户正在用的那份）→ 没有的话找当前目录和下载目录
 func (d *PCLDetector) defaultSearchPaths() []string {
-	return []string{
-		// PCL2 典型位置
-		".",                                 // 当前目录
-		"C:\\Program Files\\PCL2",           // 典型安装路径
-		"C:\\Program Files (x86)\\PCL2",     // 32 位安装
-		filepath.Join(os.Getenv("LOCALAPPDATA"), "PCL2"),
-		filepath.Join(os.Getenv("APPDATA"), "PCL2"),
-		"D:\\PCL2",
-		// 桌面
-		filepath.Join(os.Getenv("USERPROFILE"), "Desktop"),
-		filepath.Join(os.Getenv("USERPROFILE"), "Downloads"),
+	paths := []string{
+		".", // 当前目录（配套使用场景，优先级最高）
 	}
+
+	userProfile := os.Getenv("USERPROFILE")
+	desktop := filepath.Join(userProfile, "Desktop")
+	downloads := filepath.Join(userProfile, "Downloads")
+
+	// 1. 先查桌面快捷方式 → 解析出真实 exe 路径
+	if lnk := d.findLNKTarget(desktop); lnk != "" {
+		paths = append(paths, lnk)
+	}
+
+	// 2. 桌面直接搜
+	paths = append(paths, desktop)
+
+	// 3. 下载目录
+	paths = append(paths, downloads)
+
+	return paths
 }
+
+// findLNKTarget 在目录中找 PCL2 相关的 .lnk，返回指向的 exe 目录
+func (d *PCLDetector) findLNKTarget(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := strings.ToLower(e.Name())
+		if !strings.HasSuffix(name, ".lnk") {
+			continue
+		}
+		// 快捷方式名包含 pcl / plaincraft / minecraft 的才检查
+		if !containsAny(name, []string{"pcl", "plaincraft", "minecraft"}) {
+			continue
+		}
+		fullPath := filepath.Join(dir, e.Name())
+		if target := resolveLNKTarget(fullPath); target != "" {
+			// 返回指向的 exe 所在目录
+			if info, err := os.Stat(target); err == nil && !info.IsDir() {
+				return filepath.Dir(target)
+			}
+		}
+	}
+	return ""
+}
+
+// resolveLNKTarget 解析 .lnk 快捷方式的目标路径（仅 Windows）
+// 通过读取 lnk 二进制格式的 Shell Link Header 获取目标
+func resolveLNKTarget(lnkPath string) string {
+	data, err := os.ReadFile(lnkPath)
+	if err != nil || len(data) < 76 {
+		return ""
+	}
+	// Shell Link Header: 前 4 字节应为 0x4C 0x00 0x00 0x00
+	if data[0] != 0x4C || data[1] != 0x00 || data[2] != 0x00 || data[3] != 0x00 {
+		return ""
+	}
+	// LinkTargetIDList 偏移在 0x4C（后跟 2 字节总长度）
+	// 简单做法：跳过 header，在剩余数据里搜可打印字符串
+	// 真实场景最好用 ole32 APIs 解析，但为了跨平台可编译，
+	// 我们做字符串启发式扫描
+	var target strings.Builder
+	inTarget := false
+	for i := 76; i < len(data); i++ {
+		b := data[i]
+		if b >= 0x20 && b <= 0x7E {
+			target.WriteByte(b)
+			inTarget = true
+		} else if inTarget {
+			s := target.String()
+			if strings.HasSuffix(strings.ToLower(s), ".exe") && len(s) > 10 {
+				if _, err := os.Stat(s); err == nil {
+					return s
+				}
+			}
+			target.Reset()
+			inTarget = false
+		}
+	}
+	return ""
+}
+
+// containsAny 检查 s 是否包含 keywords 中任意一个
+func containsAny(s string, keywords []string) bool {
+	for _, k := range keywords {
+		if strings.Contains(s, k) {
+			return true
+		}
+	}
+	return false
+}
+
+// Validate 确认路径是否真的是 PCL2
+// 对已存储的路径做二次确认
 
 // Validate 确认路径是否真的是 PCL2
 // 对已存储的路径做二次确认
