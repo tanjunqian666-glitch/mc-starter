@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -56,6 +57,11 @@ func TestMavenURL(t *testing.T) {
 }
 
 func TestShouldInclude(t *testing.T) {
+	// 测试运行的实际 OS
+	isWindows := runtime.GOOS == "windows"
+	isLinux := runtime.GOOS == "linux"
+	_ = isLinux
+
 	tests := []struct {
 		name  string
 		rules []Rule
@@ -65,31 +71,54 @@ func TestShouldInclude(t *testing.T) {
 		{"空数组", []Rule{}, true},
 		{"仅 allow 无 OS", []Rule{{Action: "allow"}}, true},
 		{"仅 disallow 无 OS", []Rule{{Action: "disallow"}}, false},
-		{"allow windows", []Rule{{Action: "allow", OS: &OSRule{Name: "windows"}}}, true},
-		{"disallow windows", []Rule{{Action: "disallow", OS: &OSRule{Name: "windows"}}}, false},
-		{"allow linux", []Rule{{Action: "allow", OS: &OSRule{Name: "linux"}}}, false},
+
+		// OS 名称匹配 — 结果取决于运行环境
+		{"allow windows", []Rule{{Action: "allow", OS: &OSRule{Name: "windows"}}}, isWindows},
+		{"disallow windows", []Rule{{Action: "disallow", OS: &OSRule{Name: "windows"}}}, !isWindows},
+		{"allow linux", []Rule{{Action: "allow", OS: &OSRule{Name: "linux"}}}, isLinux},
 		{"allow osx", []Rule{{Action: "allow", OS: &OSRule{Name: "osx"}}}, false},
 
-		// 增强测试：features 标签
-		{"allow + is_demo_user=true（仅允许 Demo 用户，我们不是）", []Rule{{Action: "allow", Features: &RuleFeatures{IsDemoUser: boolPtr(true)}}}, false},
+		// features 标签
+		{"allow + is_demo_user=true（仅 Demo 用户）", []Rule{{Action: "allow", Features: &RuleFeatures{IsDemoUser: boolPtr(true)}}}, false},
 
 		// allow 和 disallow 组合
 		{"allow windows + allow osx", []Rule{
 			{Action: "allow", OS: &OSRule{Name: "windows"}},
 			{Action: "allow", OS: &OSRule{Name: "osx"}},
-		}, true},
+		}, isWindows},
 		{"allow all + disallow linux", []Rule{
 			{Action: "allow"},
 			{Action: "disallow", OS: &OSRule{Name: "linux"}},
-		}, true},
+		}, !isLinux},
 		{"allow all + disallow windows", []Rule{
 			{Action: "allow"},
 			{Action: "disallow", OS: &OSRule{Name: "windows"}},
-		}, false},
-		{"allow windows + disallow all", []Rule{
+		}, !isWindows},
+		{"allow windows + disallow windows", []Rule{
 			{Action: "allow", OS: &OSRule{Name: "windows"}},
 			{Action: "disallow", OS: &OSRule{Name: "windows"}},
-		}, false}, // disallow 优先
+		}, false}, // disallow 优先于 allow
+
+		// arch 匹配
+		{"allow windows + arch x86（64位不匹配）", []Rule{
+			{Action: "allow", OS: &OSRule{Name: "windows", Arch: "x86"}},
+		}, false},
+		{"disallow windows + arch x86（64位不匹配disallow）", []Rule{
+			{Action: "disallow", OS: &OSRule{Name: "windows", Arch: "x86"}},
+		}, !isWindows}, // arch=x86 不匹配 64 位 → disallow 不生效 → 如果 OS 匹配则允许
+
+		// 只有 disallow 没有 allow
+		{"只有 disallow linux（不匹配 → 允许）", []Rule{
+			{Action: "disallow", OS: &OSRule{Name: "linux"}},
+		}, !isLinux},
+		{"只有 disallow windows（匹配 → 拒绝）", []Rule{
+			{Action: "disallow", OS: &OSRule{Name: "windows"}},
+		}, !isWindows},
+
+		// 仅 OS 无 action
+		{"allow + windows + arch x86", []Rule{
+			{Action: "allow", OS: &OSRule{Name: "windows", Arch: "x86"}},
+		}, false},
 	}
 
 	for _, tt := range tests {

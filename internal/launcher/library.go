@@ -227,49 +227,29 @@ func (m *LibraryManager) MavenLocalPath(coords *MavenArtifact) string {
 // ShouldInclude 根据 rules 判断当前平台是否应包含该库
 //
 // 规则逻辑（参考 PCL McJsonRuleCheck）：
-//   - 空 rules → 总是包含（无限制）
-//   - 有 rules → 逐条计算，allow/disallow
-//   - action="allow" 且规则匹配 → 标记为允许
-//   - action="disallow" 且规则匹配 → 标记为禁止（覆盖 allow）
-//   - 无 os/features 限制的规则：匹配所有情况
-//   - 最终：如果存在 allow 规则且至少一个匹配 → 允许
-//     如果存在 disallow 规则且至少一个匹配 → 禁止
-//     没有任何 allow 规则匹配 → 不允许
+//   - 空 rules → 总是包含
+//   - 存在 allow 规则 → 至少一个 allow 匹配才算通过
+//   - 存在 disallow 规则 → 任一 disallow 匹配就拒绝（优先于 allow）
+//   - 不存在任何 allow 规则但有 disallow → 不匹配 disallow 的都通过
 //
-// 支持的匹配维度：
-//   - os.name: "windows" / "osx" / "linux"（精确匹配）
-//   - os.version: 正则表达式匹配（如 "10\\.0\\..*"）
-//   - os.arch: "x86" 表示 32 位，默认匹配 64 位
-//   - features.is_demo_user: 反选（非 Demo 用户才匹配）
-//
-// Windows-only 项目: 非 Windows 的 os.name 规则视为不匹配，
-// 但支持跨平台规则的完整解析以确保兼容性。
+// 匹配维度：
+//   - os.name: "windows" / "osx" / "linux"
+//   - os.version: 正则匹配（如 "10\\.0\\..*"）
+//   - os.arch: "x86" = 32位，空/其他 = 64位
+//   - features.is_demo_user: true = 仅 Demo 用户匹配，false 或 nil = 跳过
 func ShouldInclude(rules []Rule) bool {
 	if len(rules) == 0 {
 		return true
 	}
 
-	var hasAllow bool
-	var matchedAllow bool
-	var matchedDisallow bool
+	var (
+		hasAllow       bool
+		matchedAllow   bool
+		matchedDisallow bool
+	)
 
 	for _, rule := range rules {
-		matched := true
-
-		// 检查 OS 条件
-		if rule.OS != nil {
-			osMatch := matchOS(rule.OS)
-			if !osMatch {
-				matched = false
-			}
-		}
-
-		// 检查 features 条件
-		if matched && rule.Features != nil {
-			if !matchFeatures(rule.Features) {
-				matched = false
-			}
-		}
+		matched := ruleMatches(rule)
 
 		if rule.Action == "allow" {
 			hasAllow = true
@@ -283,54 +263,62 @@ func ShouldInclude(rules []Rule) bool {
 		}
 	}
 
-	// disallow 优先于 allow
+	// disallow 优先：任一匹配就拒绝
 	if matchedDisallow {
 		return false
 	}
 
+	// 有 allow 规则：至少一个匹配
 	if hasAllow {
 		return matchedAllow
 	}
 
-	// 没有 allow 规则也没有 disallow 规则（理论上不可能到这里）
-	return false
+	// 只有 disallow 且未匹配 → 允许
+	return true
+}
+
+// ruleMatches 判断单条规则在当前平台是否匹配
+func ruleMatches(rule Rule) bool {
+	// 无任何条件：表示"无条件匹配"
+	if rule.OS == nil && rule.Features == nil {
+		return true
+	}
+
+	// OS 条件
+	if rule.OS != nil {
+		if !matchOS(rule.OS) {
+			return false
+		}
+	}
+
+	// Features 条件
+	if rule.Features != nil {
+		if !matchFeatures(rule.Features) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // matchOS 判断 OS 规则是否匹配当前平台
-//
-// 本项目为 Windows-only：
-//   - 规则要求 windows → 始终匹配
-//   - 规则要求 osx/linux → 不匹配
-//   - 空规则 → 匹配（表示不限制）
 func matchOS(rule *OSRule) bool {
 	// 名称匹配
 	if rule.Name != "" {
-		name := normalizeOS(rule.Name)
-		if name != "windows" {
-			// Windows-only 项目，非 Windows 规则不匹配
+		osName := currentOSName()
+		target := normalizeOS(rule.Name)
+		if osName != target {
 			return false
 		}
-		// windows 规则始终匹配
 	}
 
-	// 版本正则匹配（如 "10\\.0\\..*"）
+	// 版本正则匹配
 	if rule.Version != "" {
-		// 简单实现：对于已知的 OS 版本，做正则匹配
-		// 这里简化处理 — 大部分规则是 "10\\.0\\..*" 这种匹配 Windows 10+
-		// 我们只对 Windows 做基础匹配
-		if currentOSName() == "windows" {
-			matched, err := matchOSVersion(rule.Version)
-			if err != nil || !matched {
-				return false
-			}
-		} else {
-			// 非 Windows 平台忽略 version 条件
-		}
 	}
 
-	// 架构匹配（"x86" = 32 位）
+	// 架构匹配
 	if rule.Arch != "" {
-		if rule.Arch == "x86" && !is32Bit() {
+		if !archMatches(rule.Arch) {
 			return false
 		}
 	}
@@ -339,34 +327,30 @@ func matchOS(rule *OSRule) bool {
 }
 
 // matchFeatures 判断 features 规则是否匹配
-//
-// PCL 参考: is_demo_user 是反选标签
-//   - is_demo_user=true → 规则要求"是 Demo 用户"才匹配
-//   - 我们不是 Demo 用户 → 不匹配
-//   - 没有 features 总是匹配
 func matchFeatures(features *RuleFeatures) bool {
 	if features == nil {
 		return true
 	}
-	// is_demo_user: 反选 — 非 Demo 用户不匹配
 	if features.IsDemoUser != nil && *features.IsDemoUser {
-		return false
+		return false // 我们不是 Demo 用户，所以要求 is_demo_user=true 时不匹配
 	}
 	return true
 }
 
-// matchOSVersion 简单匹配 OS 版本正则
-// 目前只支持 Windows 的典型正则，如 "10\\.0\\..*"
-func matchOSVersion(pattern string) (bool, error) {
-	// 获取当前 OS 版本号（简化：只处理已知的常见模式）
-	// 真正的实现在 Windows 上需要读取注册表或调用 RtlGetVersion，
-	// 这里用编译时已知的信息做最简匹配
-	return true, nil // Windows-only 项目，简单接受
+// versionMatches 匹配 OS 版本正则
+// 现阶段简化处理：在 Windows 上始终返回 true
+func versionMatches(pattern string) bool {
+	_ = pattern
+	return true
 }
 
-// is32Bit 判断是否为 32 位系统
-func is32Bit() bool {
-	return false // 本项目固定 64 位
+// archMatches 匹配架构条件
+// "x86" = 要求是 32 位系统
+func archMatches(arch string) bool {
+	if arch == "x86" {
+		return false // 本项目是 64 位
+	}
+	return true
 }
 
 // currentOSName 返回当前操作系统名称（小写）
