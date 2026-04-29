@@ -12,6 +12,7 @@ import (
 	"github.com/gege-tlph/mc-starter/internal/launcher"
 	"github.com/gege-tlph/mc-starter/internal/logger"
 	"github.com/gege-tlph/mc-starter/internal/model"
+	"github.com/gege-tlph/mc-starter/internal/pack"
 )
 
 var version = "dev"
@@ -51,6 +52,8 @@ func main() {
 		handleBackup(os.Args[2:])
 	case "cache":
 		handleCache(os.Args[2:])
+	case "pack":
+		handlePack(os.Args[2:])
 	case "pcl":
 		handlePCL(os.Args[2:])
 	case "version":
@@ -868,6 +871,197 @@ func handlePCL(args []string) {
 		fmt.Printf("pcl path: set to %s (not yet implemented)\n", args[1])
 	default:
 		fmt.Printf("pcl: unknown subcommand %s\n", args[0])
+	}
+}
+
+func handlePack(args []string) {
+	if len(args) == 0 {
+		fmt.Println("pack: subcommand required (sync | diff)")
+		return
+	}
+	switch args[0] {
+	case "sync":
+		handlePackSync(args[1:])
+	case "diff":
+		handlePackDiff(args[1:])
+	case "extract":
+		handlePackExtract(args[1:])
+	default:
+		fmt.Printf("pack: unknown subcommand %s\n", args[0])
+	}
+}
+
+func handlePackSync(args []string) {
+	fs := flag.NewFlagSet("pack sync", flag.ExitOnError)
+	cfgDir := fs.String("config", "./config", "配置目录")
+	verbose := fs.Bool("verbose", false, "详细日志")
+	dryRun := fs.Bool("dry-run", false, "仅检查不下载")
+	hash := fs.String("hash", "", "期望的 SHA256 校验值")
+	fs.Parse(args)
+
+	if *verbose {
+		logger.Init(true)
+	}
+
+	// 读取 server.json
+	mg := config.New(*cfgDir)
+	serverCfg, err := mg.LoadServer()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取 server.json 失败: %v\n", err)
+		fmt.Println("请先创建 config/server.json")
+		return
+	}
+
+	if len(serverCfg.Modpacks) == 0 {
+		fmt.Println("server.json 中未配置 modpacks")
+		return
+	}
+
+	// 读取 install path
+	localCfg, _ := mg.LoadLocal()
+	installDir := ".minecraft"
+	if localCfg.InstallPath != "" {
+		installDir = localCfg.InstallPath
+	}
+
+	sm := pack.NewSyncManager()
+
+	for _, mp := range serverCfg.Modpacks {
+		if mp.Source != "url" || mp.Slug == "" {
+			continue
+		}
+		// 根据 Source 确定 URL: "url" 类型从 Files[0] 取 URL
+		sourceURL := ""
+		if len(mp.Files) > 0 {
+			sourceURL = mp.Files[0]
+		}
+		if sourceURL == "" {
+			fmt.Printf("[!] modpack %s: 未配置 source URL\n", mp.Slug)
+			continue
+		}
+
+		effectiveHash := *hash
+		if effectiveHash == "" && serverCfg.SelfUpdate != nil && serverCfg.SelfUpdate.Version != "" {
+			effectiveHash = serverCfg.SelfUpdate.Version
+		}
+
+		fmt.Printf("\n=== 同步整合包: %s ===\n", mp.Slug)
+		logger.Info("pack sync: %s (%s)", mp.Slug, sourceURL)
+
+		if *dryRun {
+			// dry-run 只下载+计算，不应用
+			tempDir := filepath.Join(installDir, ".starter_cache", "pack", mp.Slug)
+			handler := pack.NewZipHandler()
+			if effectiveHash != "" {
+				handler.WithHash(effectiveHash)
+			}
+			result, err := handler.DownloadAndExtract(sourceURL, tempDir, mp.Slug)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[✗] %s: %v\n", mp.Slug, err)
+				continue
+			}
+			defer result.Cleanup()
+
+			fmt.Printf("  解压了 %d 个文件\n", len(result.Entries))
+
+			// 如果没有指定 targets，默认 mods 和 config
+			targets := []string{"mods", "config"}
+			for _, target := range targets {
+				diff := pack.ComputeDiff(result.Entries, installDir, target)
+				if diff.HasChanges() {
+					fmt.Printf("  [%s] %s\n", target, diff.Summary())
+					pack.PrintPendingSyncDiff(map[string]*pack.DiffResult{target: diff})
+				} else {
+					fmt.Printf("  [%s] 已是最新\n", target)
+				}
+			}
+			continue
+		}
+
+		// 执行同步
+		syncResult, err := sm.SyncFromURL(sourceURL, installDir, mp.Slug, []string{"mods", "config"}, effectiveHash)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[✗] %s 同步失败: %v\n", mp.Slug, err)
+			continue
+		}
+		fmt.Printf("  %s\n", syncResult.Summary())
+	}
+
+	fmt.Println("\npack sync: 完成")
+}
+
+func handlePackDiff(args []string) {
+	fs := flag.NewFlagSet("pack diff", flag.ExitOnError)
+	cfgDir := fs.String("config", "./config", "配置目录")
+	zipPath := fs.String("zip", "", "本地 zip 文件路径")
+	fs.Parse(args)
+
+	if *zipPath == "" {
+		fmt.Println("用法: starter pack diff --zip <path> [--config <dir>]")
+		return
+	}
+
+	mg := config.New(*cfgDir)
+	localCfg, _ := mg.LoadLocal()
+	installDir := ".minecraft"
+	if localCfg.InstallPath != "" {
+		installDir = localCfg.InstallPath
+	}
+
+	handler := pack.NewZipHandler()
+	tempDir := filepath.Join(installDir, ".starter_cache", "pack", "diff-tmp")
+	result, err := handler.ExtractExisting(*zipPath, tempDir, "diff")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "解压失败: %v\n", err)
+		return
+	}
+	defer result.Cleanup()
+
+	fmt.Printf("zip 文件: %s (%d 个文件)\n", *zipPath, len(result.Entries))
+
+	for _, target := range []string{"mods", "config"} {
+		diff := pack.ComputeDiff(result.Entries, installDir, target)
+		fmt.Printf("\n=== [%s] %s ===\n", target, diff.Summary())
+		if diff.HasChanges() {
+			pack.PrintPendingSyncDiff(map[string]*pack.DiffResult{target: diff})
+		} else {
+			fmt.Println("  无变更")
+		}
+	}
+}
+
+func handlePackExtract(args []string) {
+	fs := flag.NewFlagSet("pack extract", flag.ExitOnError)
+	zipPath := fs.String("zip", "", "本地 zip 文件路径")
+	outDir := fs.String("out", "", "输出目录（默认 zip 同级）")
+	fs.Parse(args)
+
+	if *zipPath == "" {
+		fmt.Println("用法: starter pack extract --zip <path> [--out <dir>]")
+		return
+	}
+
+	dest := *outDir
+	if dest == "" {
+		dest = filepath.Join(filepath.Dir(*zipPath), "extracted")
+	}
+
+	handler := pack.NewZipHandler()
+	result, err := handler.ExtractExisting(*zipPath, dest, "extract")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "解压失败: %v\n", err)
+		return
+	}
+	defer result.Cleanup()
+
+	fmt.Printf("解压完成: %d 个文件 → %s\n", len(result.Entries), result.TempRoot)
+
+	// 列一些文件
+	for _, entry := range result.Entries[:min(len(result.Entries), 10)] {
+		fmt.Printf("  %s (%d KB)\n", entry.RelPath, entry.Size/1024)
+	}
+	if len(result.Entries) > 10 {
+		fmt.Printf("  ... (%d more)\n", len(result.Entries)-10)
 	}
 }
 
