@@ -53,6 +53,9 @@ func main() {
 	case "repair":
 		fs.Parse(os.Args[2:])
 		repair(*cfgDir, *headless)
+	case "update":
+		fs.Parse(os.Args[2:])
+		handleUpdate(*cfgDir, *verbose || *verboseShort, *dryRun)
 	case "backup":
 		handleBackup(os.Args[2:])
 	case "cache":
@@ -81,6 +84,7 @@ mc-starter — Windows 版 Minecraft 版本管理 & 整合包更新器
   starter init     初始化本地配置
   starter check    检查 Java / PCL2 / 配置完整性
   starter sync     仅同步版本 + 模组
+  starter update   增量更新（拉取服务端增量清单，按 hash 下文件）
   starter repair   修复工具
   starter backup   备份管理
     list           列出备份
@@ -647,6 +651,160 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 func repair(cfgDir string, headless bool) {
 	logger.Init(false)
 	fmt.Println("repair: not yet implemented")
+}
+
+func handleUpdate(cfgDir string, verbose, dryRun bool) {
+	mg := config.New(cfgDir)
+	localCfg, err := mg.LoadLocal()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取配置失败: %v\n", err)
+		return
+	}
+	installPath := ".minecraft"
+	if localCfg.InstallPath != "" {
+		installPath = localCfg.InstallPath
+	}
+
+	// 加载服务端配置获取 update 信息
+	serverCfg, err := mg.LoadServer()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取服务端配置失败: %v\n", err)
+		return
+	}
+
+	if serverCfg == nil || (serverCfg.SelfUpdate == nil && serverCfg.Version.ID == "") {
+		fmt.Fprintf(os.Stderr, "服务端配置不完整，缺少 version 或 self_update 信息\n")
+		return
+	}
+
+	// 确定 server.json 的更新源 URL
+	updateURL := ""
+	if serverCfg.SelfUpdate != nil && serverCfg.SelfUpdate.URL != "" {
+		updateURL = serverCfg.SelfUpdate.URL
+	} else {
+		// 回退：使用配置目录下的 server.json 文件本身
+		cfgPath := filepath.Join(cfgDir, "server.json")
+		if _, err := os.Stat(cfgPath); err == nil {
+			updateURL = cfgPath
+		}
+	}
+
+	if updateURL == "" {
+		fmt.Fprintf(os.Stderr, "无法确定更新源 URL（server.json 中缺少 self_update.url）\n")
+		return
+	}
+
+	updater := launcher.NewUpdater(cfgDir, installPath)
+
+	// 步骤 1: 拉取服务端更新信息
+	fmt.Println("\n=== 检查更新 ===")
+	updateInfo, err := updater.FetchUpdateInfo(updateURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "无法获取更新信息: %v\n", err)
+		return
+	}
+	fmt.Printf("服务端版本: %s\n", updateInfo.Version)
+	if updateInfo.FromVersion != "" {
+		fmt.Printf("上一版本:   %s\n", updateInfo.FromVersion)
+	}
+	if updateInfo.MCVersion != "" {
+		fmt.Printf("MC 版本:    %s\n", updateInfo.MCVersion)
+	}
+	fmt.Printf("更新模式:   %s\n", updateInfo.Mode)
+
+	// 步骤 2: 检查本地版本
+	localVer := updater.CheckLocalVersion()
+	if localVer == "" {
+		fmt.Println("本地状态:   无版本记录")
+
+		if updateInfo.FullPack != nil {
+			fmt.Printf("提示: 首次更新需全量下载 (%s, %.1f MB)\n",
+				updateInfo.FullPack.URL, float64(updateInfo.FullPack.Size)/1024/1024)
+		} else {
+			fmt.Println("提示: 首次更新建议先执行 sync 全量同步")
+		}
+	} else {
+		fmt.Printf("本地版本:   %s\n", localVer)
+	}
+
+	// 显示变更概要
+	if updateInfo.Incremental != nil {
+		incr := updateInfo.Incremental
+		fmt.Printf("\n变更清单:  +%d, ~%d, -%d\n",
+			len(incr.Added), len(incr.Updated), len(incr.Removed))
+		if len(incr.Added) > 0 {
+			fmt.Println("  新增:")
+			for i, f := range incr.Added {
+				if i >= 5 {
+					fmt.Printf("    ... (+%d more)\n", len(incr.Added)-5)
+					break
+				}
+				fmt.Printf("    + %s (%.1f KB)\n", f.Path, float64(f.Size)/1024)
+			}
+		}
+		if len(incr.Updated) > 0 {
+			fmt.Println("  更新:")
+			for i, f := range incr.Updated {
+				if i >= 5 {
+					fmt.Printf("    ... (~%d more)\n", len(incr.Updated)-5)
+					break
+				}
+				fmt.Printf("    ~ %s (%.1f KB)\n", f.Path, float64(f.Size)/1024)
+			}
+		}
+		if len(incr.Removed) > 0 {
+			fmt.Println("  删除:")
+			for i, p := range incr.Removed {
+				if i >= 5 {
+					fmt.Printf("    ... (-%d more)\n", len(incr.Removed)-5)
+					break
+				}
+				fmt.Printf("    - %s\n", p)
+			}
+		}
+	}
+
+	if updateInfo.Mode == "full" || (updateInfo.Incremental == nil && updateInfo.FullPack != nil) {
+		if dryRun {
+			fmt.Println("\n[dry-run] 将执行全量更新")
+			return
+		}
+		fmt.Println("\n=== 全量更新 ===")
+		result, err := updater.DownloadFullPack(dryRun)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "全量更新失败: %v\n", err)
+			return
+		}
+		fmt.Printf("[✓] 全量更新完成: %s\n", result.Summary())
+		return
+	}
+
+	// 步骤 3: 应用增量更新
+	if dryRun {
+		fmt.Println("\n=== 应用更新 (DRY-RUN) ===")
+		result, err := updater.ApplyUpdate(true)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "更新检查失败: %v\n", err)
+			return
+		}
+		fmt.Printf("[dry-run] 将执行: %s\n", result.Summary())
+		return
+	}
+
+	fmt.Println("\n=== 应用更新 ===")
+	result, err := updater.ApplyUpdate(false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "更新失败: %v\n", err)
+		return
+	}
+
+	fmt.Printf("[✓] 更新完成: %s\n", result.Summary())
+	if len(result.Errors) > 0 {
+		fmt.Printf("\n⚠ 部分文件更新失败 (%d 个):\n", len(result.Errors))
+		for _, e := range result.Errors {
+			fmt.Printf("  - %s\n", e)
+		}
+	}
 }
 
 func handleBackup(args []string) {

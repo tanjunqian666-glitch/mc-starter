@@ -158,7 +158,7 @@ func (s *SmartSelector) ProbeAndSelect(url, probeURL string) (selectedURL string
 	}
 
 	// primary 模式下：探测延迟
-	latency = probeLatency(probeURL, 3*time.Second)
+	latency = probeLatency(probeURL, s.threshold)
 
 	s.mu.Lock()
 	s.primaryLatencies = append(s.primaryLatencies, latency)

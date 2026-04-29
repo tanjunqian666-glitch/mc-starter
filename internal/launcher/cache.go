@@ -220,6 +220,7 @@ func (cs *CacheStore) Clean(opts CleanOptions) (deleted int, freed int64, errs [
 	}
 
 	now := time.Now()
+	var deletedHashes []string
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -265,6 +266,7 @@ func (cs *CacheStore) Clean(opts CleanOptions) (deleted int, freed int64, errs [
 			}
 		}
 
+		deletedHashes = append(deletedHashes, hash)
 		deleted++
 		freed += size
 	}
@@ -272,8 +274,7 @@ func (cs *CacheStore) Clean(opts CleanOptions) (deleted int, freed int64, errs [
 	if !opts.DryRun && deleted > 0 {
 		cs.meta.TotalFiles -= int64(deleted)
 		cs.meta.TotalSize -= freed
-		for _, entry := range entries {
-			hash := entry.Name()
+		for _, hash := range deletedHashes {
 			delete(cs.meta.Entries, hash)
 			delete(cs.meta.RefCounts, hash)
 		}

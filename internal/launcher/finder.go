@@ -235,7 +235,6 @@ func (f *VersionFinder) findViaFallback(remaining map[string]bool, results map[s
 				delete(remaining, name)
 			}
 		}
-		_ = dirNames
 	}
 
 	if len(remaining) > 0 {
@@ -333,5 +332,4 @@ func keys(m map[string]bool) []string {
 	return ks
 }
 
-// 让编译器不报 unused
-var _ = sort.Strings
+
