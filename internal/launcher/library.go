@@ -376,94 +376,117 @@ func normalizeOS(name string) string {
 // 返回: 下载到的本地路径，是否需要本机处理，错误
 // Mojang 格式的 library: 通过 Downloads.Artifact 直接下载
 // Fabric 格式的 library: 通过 name+url Maven 下载
-func (m *LibraryManager) DownloadLibrary(lib LibraryEntry) (string, bool, error) {
-	// 检查 rules
+// ResolveLibrary 将单个 LibraryEntry 解析为 LibraryFile（不下载）
+//
+// 职责分离（参考 PCL McLibToken）：
+//   - ResolveLibrary: 解析 rules + Maven 坐标 + 下载信息 → LibraryFile
+//   - 下载：由调用方通过 Downloader 或批量流程处理
+//
+// 返回解析后的文件列表（可能含 natives）
+func (m *LibraryManager) ResolveLibrary(lib LibraryEntry) []model.LibraryFile {
 	if !ShouldInclude(lib.Rules) {
-		return "", false, nil // 跳过，不是错误
+		return nil
 	}
 
-	// 确定下载 URL 和本地路径
-	var (
-		downloadURL string
-		localPath   string
-		isNative    bool
-	)
+	coords := ParseMavenCoords(lib.Name)
+	if coords == nil {
+		logger.Debug("跳过无法解析的库: %s", lib.Name)
+		return nil
+	}
 
+	var files []model.LibraryFile
+
+	// 主 artifact
 	if lib.Downloads != nil && lib.Downloads.Artifact != nil {
-		// Mojang 格式: 直接使用 downloads.artifact.url
-		downloadURL = lib.Downloads.Artifact.URL
-		coords := ParseMavenCoords(lib.Name)
-		if coords != nil {
-			localPath = m.MavenLocalPath(coords)
-		} else {
-			return "", false, fmt.Errorf("无法解析 Maven 坐标: %s", lib.Name)
-		}
+		files = append(files, model.LibraryFile{
+			LocalPath:    m.MavenLocalPath(coords),
+			URL:          lib.Downloads.Artifact.URL,
+			SHA1:         lib.Downloads.Artifact.Sha1,
+			Size:         lib.Downloads.Artifact.Size,
+			IsNative:     false,
+			OriginalName: lib.Name,
+		})
 	} else if lib.URL != "" {
-		// Fabric 格式: 通过 name+url 拼 Maven 路径
-		coords := ParseMavenCoords(lib.Name)
-		if coords == nil {
-			return "", false, fmt.Errorf("无法解析 Fabric Maven 坐标: %s", lib.Name)
-		}
-		downloadURL = MavenURL(lib.URL, coords)
-		localPath = m.MavenLocalPath(coords)
-	} else {
-		// 没有下载信息，跳过
-		logger.Debug("跳过无下载信息的库: %s", lib.Name)
+		dlURL := MavenURL(lib.URL, coords)
+		files = append(files, model.LibraryFile{
+			LocalPath:    m.MavenLocalPath(coords),
+			URL:          dlURL,
+			IsNative:     false,
+			OriginalName: lib.Name,
+		})
+	}
+
+	// natives
+	if lib.Natives != nil {
+		nativeFiles := m.resolveNatives(lib, coords)
+		files = append(files, nativeFiles...)
+	}
+
+	return files
+}
+
+// DownloadLibrary 下载单个库文件（兼容旧调用）
+// 内部使用 ResolveLibrary + DownloadFiles
+// Deprecated: 新代码使用 ResolveLibrary → DownloadFiles 两阶段流程
+func (m *LibraryManager) DownloadLibrary(lib LibraryEntry) (string, bool, error) {
+	files := m.ResolveLibrary(lib)
+	if len(files) == 0 {
 		return "", false, nil
 	}
 
-	// 如果已有则跳过
-	if _, err := os.Stat(localPath); err == nil {
-		logger.Debug("库文件已存在: %s", filepath.Base(localPath))
-		return localPath, false, nil
-	}
+	downloaded, skipped, failed := m.DownloadFiles(files)
+	_ = skipped
 
-	// 下载
-	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
-		return "", false, fmt.Errorf("创建库目录失败: %w", err)
+	if failed > 0 {
+		return "", false, fmt.Errorf("下载库失败: %s", lib.Name)
 	}
-
-	logger.Debug("下载库: %s", filepath.Base(localPath))
-	if lib.Downloads != nil && lib.Downloads.Artifact != nil {
-		// Mojang 格式: 传 SHA1 做校验
-		if err := m.dl.File(downloadURL, localPath, ""); err != nil {
-			return "", false, fmt.Errorf("下载库失败(%s): %w", lib.Name, err)
-		}
-		// SHA1 校验
-		if lib.Downloads.Artifact.Sha1 != "" {
-			if ok, err := verifySHA1(localPath, lib.Downloads.Artifact.Sha1); err != nil {
-				return "", false, fmt.Errorf("SHA1 校验失败(%s): %w", lib.Name, err)
-			} else if !ok {
-				os.Remove(localPath)
-				return "", false, fmt.Errorf("SHA1 不匹配(%s)", lib.Name)
-			}
-		}
-	} else {
-		// Fabric 格式: 无 SHA1 信息，直接下载
-		if err := m.dl.File(downloadURL, localPath, ""); err != nil {
-			return "", false, fmt.Errorf("下载 Fabric 库失败(%s): %w", lib.Name, err)
-		}
+	if downloaded > 0 || skipped > 0 {
+		return files[0].LocalPath, files[0].IsNative, nil
 	}
-
-	return localPath, isNative, nil
+	return "", false, nil
 }
 
 // DownloadLibraries 批量下载库文件
+// 使用两阶段流程：ResolveLibrary → DownloadFiles
 // 返回: 成功列表、失败列表
 func (m *LibraryManager) DownloadLibraries(libraries []LibraryEntry) ([]string, []error) {
+	// 阶段1：解析所有 libraries
+	var allFiles []model.LibraryFile
+	for _, lib := range libraries {
+		files := m.ResolveLibrary(lib)
+		allFiles = append(allFiles, files...)
+	}
+
+	// 阶段2：批量下载
 	var success []string
 	var fails []error
-
-	for _, lib := range libraries {
-		path, _, err := m.DownloadLibrary(lib)
-		if err != nil {
-			logger.Warn("库下载失败: %v", err)
-			fails = append(fails, err)
+	for _, f := range allFiles {
+		if f.SHA1 != "" {
+			if ok, _ := verifySHA1(f.LocalPath, f.SHA1); ok {
+				success = append(success, f.LocalPath)
+				continue
+			}
+		} else if _, err := os.Stat(f.LocalPath); err == nil {
+			success = append(success, f.LocalPath)
 			continue
 		}
-		if path != "" {
-			success = append(success, path)
+
+		if err := os.MkdirAll(filepath.Dir(f.LocalPath), 0755); err != nil {
+			fails = append(fails, fmt.Errorf("创建目录失败: %s (%w)", f.LocalPath, err))
+			continue
 		}
+		if err := m.dl.File(f.URL, f.LocalPath, ""); err != nil {
+			fails = append(fails, fmt.Errorf("下载失败: %s (%w)", f.OriginalName, err))
+			continue
+		}
+		if f.SHA1 != "" {
+			if ok, _ := verifySHA1(f.LocalPath, f.SHA1); !ok {
+				os.Remove(f.LocalPath)
+				fails = append(fails, fmt.Errorf("SHA1 校验失败: %s", f.OriginalName))
+				continue
+			}
+		}
+		success = append(success, f.LocalPath)
 	}
 
 	return success, fails
