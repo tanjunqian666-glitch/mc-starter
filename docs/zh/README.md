@@ -15,19 +15,16 @@
 **全程只做一步：双击。**
 
 如果自动搜索不到 PCL2 或 .minecraft，程序会提示你手动选择文件夹。
-
 ### 前提
 
-- **Java 17+**（没有的话 `starter run` 会引导你下载）
+- **Java 17+**（启动器会处理账户登录和运行参数，我们只负责同步）
 
 ## 命令参考
 
 | 命令 | 作用 |
 |---|---|
-| `starter` / `starter run` | 全自动模式：检测→同步→集成→拉起 PCL2（最常用） |
-| `starter run --headless` | 静默模式，不交互 |
 | `starter init` | 初始化本地配置 |
-| `starter check` | 检查 Java / PCL2 / 配置完整性 |
+| `starter check` | 检查 PCL2 / 配置完整性 |
 | `starter sync` | 同步 MC 版本（jar/asset/library）+ 创建仓库快照 |
 | `starter backup list` | 查看本地版本快照列表 |
 | `starter backup create <name>` | 创建本地版本快照 |

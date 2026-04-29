@@ -289,7 +289,7 @@ url:  "https://maven.fabricmc.net/"
 ### 3.2 Forge 安装（备选方案）
 
 ```
-java -jar forge-installer.jar --installClient .minecraft
+forge-installer.jar --installClient .minecraft
 ```
 
 安装后插件在 `.minecraft/libraries/net/minecraftforge/forge/` 下，生成 `launcher_profiles.json` 中的 profile。

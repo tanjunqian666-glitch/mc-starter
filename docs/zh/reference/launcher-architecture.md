@@ -86,7 +86,7 @@ jvm_args 和 game_args 可以包含 Rule 对象（条件参数）
 
 - 无统一 meta API, 依赖 Forge 安装器 jar 执行
 - BMCLAPI 可查列表: `/forge/minecraft/{mc_version}`
-- 安装器: `java -jar forge-installer.jar --installClient`
+- 安装器: `forge-installer.jar --installClient`
 
 ## 开源实现参考
 

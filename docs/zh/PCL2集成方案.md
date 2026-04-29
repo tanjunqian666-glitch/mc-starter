@@ -1579,16 +1579,14 @@ func hasVersions(dir string) bool {
 ### 主命令：无参运行 = 全自动模式
 
 ```bash
-# 最简单的用法：直接双击 / 直接运行
+# 最简单的用法：双击 starter.exe，自动完成同步 + 注入 PCL.ini
 starter
-  → 等价于 starter run（全自动模式）
+  → 等价于 starter sync（同步 + PCL.ini 注入）
 
 # 子命令
-starter run                ← 全自动：检测 → 同步 → 集成 → 拉起 PCL2（默认）
-starter run --headless     ← 静默模式：不交互、不拉 PCL2
 starter init               ← 初始化配置
-starter check              ← 检查环境
-starter sync               ← 仅同步，不集成、不拉 PCL2
+starter check              ← 检查配置完整性
+starter sync               ← 全流程同步 + PCL.ini 注入
 starter pcl detect         ← 仅检测 PCL2 路径
 starter pcl path <path>    ← 手动设置 PCL2 路径
 ```

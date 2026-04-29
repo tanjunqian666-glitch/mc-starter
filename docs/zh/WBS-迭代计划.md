@@ -7,22 +7,21 @@
 ## 一、总览
 
 ```
-P0 CLI框架+配置 (2d)     →  P1 版本下载+仓库+zip (5d)  →  P2 Loader+启动+修复 (3.5d)
+P0 CLI框架+配置 (2d)     →  P1 版本下载+仓库+zip (5d)  →  P2 Loader+修复 (3d)
     ├─ P0.1 项目初始化         ├─ P1.1 版本清单        ├─ P2.1 Fabric 安装器
     ├─ P0.2 CLI 框架          ├─ P1.2 版本 Jar        ├─ P2.2 Fabric libraries
-    ├─ P0.3 配置系统          ├─ P1.3 Asset 索引      ├─ P2.3 启动参数
-    ├─ P0.4 镜像管理器        ├─ P1.4 Asset 文件      ├─ P2.4 裸启动执行
-    ├─ P0.5 下载器            ├─ P1.5 Libraries       ├─ P2.5 Forge（降级）
-    └─ P0.6 日志系统          ├─ P1.6 断点恢复        ├─ P2.6 备份系统
-                              ├─ P1.7 仓库结构        ├─ P2.7 修复命令
-                              ├─ P1.8 文件缓存        ├─ P2.8 崩溃检测
-                              ├─ P1.9 增量同步        ├─ P2.9 静默守护
-                              ├─ P1.10 快照回滚       ├─ P2.10 报告上传
-                              ├─ P1.11 全局缓存       ├─ P2.11 修复重启
-                              ├─ P1.12 zip解包+扫描   ├─ P2.12 TUI界面
-                              ├─ P1.13 差异分析       ├─ P2.13 托盘入口
-                              └─ P1.14 发布管理       ├─ P2.14 弹窗兜底
-                                                       └─ P2.15 PCL刷新
+    ├─ P0.3 配置系统          ├─ P1.3 Asset 索引      ├─ P2.6 备份系统
+    ├─ P0.4 镜像管理器        ├─ P1.4 Asset 文件      ├─ P2.7 修复命令
+    ├─ P0.5 下载器            ├─ P1.5 Libraries       ├─ P2.8 崩溃检测
+    └─ P0.6 日志系统          ├─ P1.6 断点恢复        ├─ P2.9 静默守护
+                              ├─ P1.7 仓库结构        ├─ P2.10 报告上传
+                              ├─ P1.8 文件缓存        ├─ P2.11 修复后同步
+                              ├─ P1.9 增量同步        ├─ P2.12 TUI界面
+                              ├─ P1.10 快照回滚       ├─ P2.13 托盘入口
+                              ├─ P1.11 全局缓存       ├─ P2.14 弹窗兜底
+                              ├─ P1.12 zip解包+扫描   └─ P2.15 PCL刷新
+                              ├─ P1.13 差异分析
+                              └─ P1.14 发布管理
 
 P3 Java检测 (1d)          →  P4 启动器兼容 (3d)   →  P5 自更新 (2d)
     ├─ P3.1 路径检测            ├─ P4.1 PCL2 独立模式     ├─ P5.1 更新检查
@@ -80,28 +79,25 @@ P3 Java检测 (1d)          →  P4 启动器兼容 (3d)   →  P5 自更新 (2d
 
 ---
 
-### P2：Fabric 安装 + 裸启动 + 修复（预估 3.5 天）
+### P2：Fabric 安装 + 修复栈（预估 3 天）
 
 | ID | 任务 | 预估 | 前置 | 产出物 |
 |---|---|---|---|---|
 | P2.1 | Fabric 安装器下载：BMCLAPI meta API 获取 | 2h | P0.4 | internal/launcher/fabric.go |
 | P2.2 | Fabric libraries 组装：解析 meta profile JSON | 4h | P2.1 | internal/launcher/fabric.go |
-| P2.3 | 启动参数生成：classpath + JVM args + MC args | 4h | P2.2 | internal/launcher/launch.go |
-| P2.4 | 裸启动执行：exec java + 子进程管理 | 3h | P2.3 | internal/launcher/launch.go |
-| P2.5 | Forge 支持（降级）：安装器 jar 执行 | 3h | P2.2 | internal/launcher/forge.go |
-| P2.6 | 备份系统：CreateBackup + Rollback + 自动清理 | 4h | P2.4 | internal/repair/backup.go |
+| P2.6 | 备份系统：CreateBackup + Rollback + 自动清理 | 4h | P2.2 | internal/repair/backup.go |
 | P2.7 | 修复命令：repair 命令树 + 清理 + 全量同步 | 3h | P2.6 | internal/repair/repair.go |
-| P2.8 | 崩溃检测：退出码 + 崩溃报告 + JVM hs_err | 2h | P2.4 | internal/repair/detector.go |
+| P2.8 | 崩溃检测：退出码 + 崩溃报告 + JVM hs_err | 2h | P2.2 | internal/repair/detector.go |
 | P2.9 | 静默守护：后台轮询 + 日志监听 + 托盘 | 4h | P2.8 | internal/daemon/daemon.go |
 | P2.10 | 崩溃报告上传：收集 + 上传 + 隐私确认 | 2h | P2.8 | internal/repair/upload.go |
-| P2.11 | 一键修复重启：repair 后自动 launch | 2h | P2.7, P2.9 | internal/repair/run.go |
+| P2.11 | 修复后自动同步（替代旧 launch 的触发点） | 2h | P2.7, P2.9 | internal/repair/run.go |
 | P2.12 | 修复 TUI 界面：bubbletea 布局 + 选项交互 | 4h | P2.7 | internal/repair/tui.go |
 | P2.13 | 托盘菜单添加入口：同步/修复/备份 | 2h | P2.9 | internal/daemon/tray.go |
 | P2.14 | Windows 原生弹窗兜底（无终端时） | 2h | P2.8 | internal/repair/dialog.go |
 | P2.15 | 修复后 PCL2 自动刷新 | 1h | P2.12, P4.3 | internal/repair/pcl.go |
 | **P2 合计** | | **42h** | | |
 
-**P2 验收**：`./starter run` 全流程 + `starter repair` GUI 界面 + 托盘快捷入口
+**P2 验收**：`./starter sync` 带 Fabric libraries + `starter repair` GUI 界面 + 托盘快捷入口
 
 ---
 
@@ -193,17 +189,21 @@ P1.6 断点恢复            → 2h
 里程碑 M2：./starter sync 搞定 .minecraft
 ```
 
-### Sprint 3（Day 6-7）：启动期
+### Sprint 3（Day 6-7）：Loader + 修复栈
 
 ```
-目标：能安装 Fabric 并启动 MC
+目标：能安装 Fabric libraries，修复/崩溃检测/托盘
 P2.1 Fabric 安装器       → 2h
 P2.2 Fabric libraries    → 4h
-P2.3 启动参数生成        → 4h
-P2.4 裸启动执行          → 3h
-P2.5 Forge（如需要）     → 3h
+P2.6 备份系统            → 4h
+P2.7 修复命令            → 3h
+P2.8 崩溃检测            → 2h
+P2.12 TUI界面            → 4h
+P2.13 托盘入口           → 2h
+P2.14 弹窗兜底           → 2h
+P2.15 PCL刷新            → 1h
 ──────────────────────────────
-里程碑 M3：./starter sync && ./starter launch 进游戏
+里程碑 M3：./starter sync 带 Fabric + starter repair 可用
 ```
 
 ### Sprint 4（Day 8-9）：完善期
@@ -249,5 +249,6 @@ P0.1 → P0.2 → P0.3 ───────────────────
 
 **高风险点**：
 - P1.4 Asset 下载：文件数量多（几千个），并发控制 + 断点续传容易出 bug
-- P2.2 Fabric libraries 解析：BMCLAPI 的 meta API 格式需要仔细对接
-- P2.4 裸启动：classpath 拼接错了 MC 直接启动不了，调试困难
+- P1.5 Libraries 下载：rules/features 匹配逻辑复杂
+- P1.15 客户端增量更新：远程 API 设计 + 与 repo 缓存联动
+- P2.8-P2.15 修复栈：与裸启动解耦后，repair 退出码检测和 daemon 流程需重新设计

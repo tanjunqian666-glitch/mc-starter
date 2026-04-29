@@ -116,9 +116,9 @@
     },
     "launcher": {
       "type": "string",
-      "enum": ["pcl2", "hmcl", "vanilla", "bare"],
-      "description": "MC 启动器类型，bare = 直接 java -jar",
-      "default": "bare"
+      "enum": ["pcl2", "hmcl", "vanilla"],
+      "description": "MC 启动器类型，pcl2/hmcl/vanilla",
+      "default": "pcl2"
     },
     "java_home": {
       "type": "string",
@@ -315,7 +315,6 @@ func ValidateServerConfig(data []byte) error {
 - [ ] `starter sync` → .minecraft 完整，asset 数正确
 - [ ] `starter sync`（第二次）→ 跳过已下载文件，秒完成
 - [ ] `starter sync` 中途 Ctrl+C → 下次继续而非重头
-- [ ] `starter launch` → Minecraft 正常启动
 - [ ] 断网后 `starter sync` → 提示网络错误 + 用缓存继续
 - [ ] 指定不存在的 MC 版本 → 明确报错
 - [ ] 修改 local.json memory → 启动时生效

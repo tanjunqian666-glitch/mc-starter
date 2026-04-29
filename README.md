@@ -21,7 +21,7 @@
 
 | Command | Description |
 |---|---|
-| `starter run` | Full auto: detect → sync → integrate → launch PCL2 |
+| `starter sync` | Sync MC version (jar/asset/library) + create repo snapshot |
 | `starter sync` | Sync MC version (jar/asset/library) + create repo snapshot |
 | `starter check` | Check Java / PCL2 / config integrity |
 | `starter init` | Initialize local config |
@@ -38,7 +38,7 @@
 ### Flags
 
 `--config ./dir` config directory (default `./config`)
-`--verbose` / `--headless` / `--dry-run`
+`--verbose` / `--dry-run`
 
 ## Build
 
