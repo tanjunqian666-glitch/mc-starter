@@ -13,6 +13,7 @@ import (
 	"github.com/gege-tlph/mc-starter/internal/logger"
 	"github.com/gege-tlph/mc-starter/internal/model"
 	"github.com/gege-tlph/mc-starter/internal/pack"
+	"github.com/gege-tlph/mc-starter/internal/repair"
 	"github.com/gege-tlph/mc-starter/internal/tui"
 )
 
@@ -52,7 +53,7 @@ func main() {
 		sync(*cfgDir, *verbose || *verboseShort, *dryRun)
 	case "repair":
 		fs.Parse(os.Args[2:])
-		repair(*cfgDir, *headless)
+		runRepair(*cfgDir, *headless)
 	case "update":
 		fs.Parse(os.Args[2:])
 		handleUpdate(*cfgDir, *verbose || *verboseShort, *dryRun)
@@ -652,9 +653,88 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 	fmt.Printf("\nsync: 完成\n")
 }
 
-func repair(cfgDir string, headless bool) {
+func runRepair(cfgDir string, headless bool) {
 	logger.Init(false)
-	fmt.Println("repair: not yet implemented")
+
+	// 加载配置
+	mg := config.New(cfgDir)
+	localCfg, err := mg.LoadLocal()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取配置失败: %v\n", err)
+		return
+	}
+	installPath := ".minecraft"
+	if localCfg.InstallPath != "" {
+		installPath = localCfg.InstallPath
+	}
+
+	if _, err := os.Stat(installPath); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, ".minecraft 目录不存在: %s\n", installPath)
+		fmt.Println("请先运行 starter init 或 starter sync")
+		return
+	}
+
+	// 阶段 0: 创建修复前备份
+	fmt.Println("\n=== 修复工具 ===")
+	fmt.Println("阶段 0: 创建修复前备份...")
+	backupOpts := repair.BackupOptions{
+		Reason: repair.ReasonRepair,
+	}
+	result, err := repair.CreateBackup(installPath, backupOpts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "备份失败: %v\n", err)
+		fmt.Println("继续修复流程...")
+	} else {
+		fmt.Printf("[✓] 备份完成: %s (%d 个文件, %.1f KB)\n",
+			result.BackupDir, result.FileCount, float64(result.SizeBytes)/1024)
+	}
+
+	// 阶段 1: 清理
+	fmt.Println("\n阶段 1: 清理...")
+
+	// 清理 mods/
+	modsDir := filepath.Join(installPath, "mods")
+	if _, err := os.Stat(modsDir); err == nil {
+		if err := os.RemoveAll(modsDir); err != nil {
+			fmt.Fprintf(os.Stderr, "  清理 mods/ 失败: %v\n", err)
+		} else {
+			os.MkdirAll(modsDir, 0755)
+			fmt.Println("  [✓] 已清理 mods/")
+		}
+	}
+
+	// 清理 config/
+	configDir := filepath.Join(installPath, "config")
+	if _, err := os.Stat(configDir); err == nil {
+		if err := os.RemoveAll(configDir); err != nil {
+			fmt.Fprintf(os.Stderr, "  清理 config/ 失败: %v\n", err)
+		} else {
+			os.MkdirAll(configDir, 0755)
+			fmt.Println("  [✓] 已清理 config/")
+		}
+	}
+
+	// 阶段 2: 重新同步
+	fmt.Println("\n阶段 2: 重新同步模组和配置...")
+	fmt.Println("  提示: 请运行 'starter sync' 来重新下载模组和配置。")
+	fmt.Println("  如果已配置服务端，会自动同步到服务器版本。")
+
+	// 阶段 3: 备份管理提示
+	backups, _ := repair.ListBackups(installPath)
+	if len(backups) > 0 {
+		fmt.Printf("\n阶段 3: 可用备份 (%d 个)\n", len(backups))
+		for _, b := range backups {
+			fmt.Printf("  - %s (%s, 原因=%s, %d 个文件)\n",
+				b.ID, b.CreatedAt.Format("2006-01-02 15:04:05"),
+				b.Reason, b.FileCount)
+		}
+		fmt.Println("  如需恢复: starter backup restore <id>")
+	}
+
+	fmt.Println("\n=== 修复完成 ===")
+	fmt.Printf("📦 备份位置: %s/%s/\n", installPath, repair.BackupDirName)
+	fmt.Println("💡 如需恢复请运行: starter repair --rollback <id>")
+	fmt.Println()
 }
 
 func handleUpdate(cfgDir string, verbose, dryRun bool) {
