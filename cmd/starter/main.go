@@ -219,8 +219,9 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 
 	mm := launcher.NewVersionManifestManager(manifestDir)
 	vm := launcher.NewVersionMetaManager(versionsDir, mm)
+	var is *launcher.IncrementalSync
 
-	// 0. 拉取最新版本清单 + 确定目标版本（断点恢复的版本从目标版本匹配）
+	// 0. 拉取版本清单 + 确定目标版本
 	manifest, err := mm.Fetch(30 * time.Minute)
 	if err != nil {
 		logger.Error("版本清单拉取失败: %v", err)
@@ -238,8 +239,37 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 	}
 
 	logger.Info("sync: 目标版本 %s", targetVersion)
-
 	fmt.Printf("sync: 版本清单 (%d 个版本), 目标 %s\n", len(manifest.Versions), targetVersion)
+
+	// 0.5 读取本地配置并查找版本目录
+	localCfg, _ := mg.LoadLocal()
+	if localCfg != nil && localCfg.ManagedVersions == nil {
+		localCfg.ManagedVersions = []string{targetVersion}
+	}
+
+	finder := launcher.NewVersionFinder(localCfg)
+	results := finder.FindManagedVersions(localCfg.ManagedVersions)
+	versionResult := results[targetVersion]
+	var installPath string
+	if localCfg != nil && localCfg.InstallPath != "" {
+		installPath = localCfg.InstallPath
+	}
+
+	if versionResult == nil || !versionResult.Found {
+		logger.Info("版本 %s 未在本地安装, 将执行全量同步", targetVersion)
+		fmt.Printf("[*] 版本 %s 未在本地找到, 将执行全量安装\n", targetVersion)
+		if installPath == "" {
+			installPath = ".minecraft"
+		}
+	} else {
+		from := "路径扫描"
+		if versionResult.FromPCL {
+			from = "PCL配置"
+		}
+		fmt.Printf("[✓] 版本 %s 已安装于 %s (来自 %s)\n",
+			targetVersion, versionResult.VersionDir, from)
+		installPath = versionResult.MinecraftDir
+	}
 
 	// 1. 尝试断点恢复：读取之前的 sync_state.json
 	state := launcher.LoadSyncState(cacheDir, targetVersion)
@@ -290,13 +320,7 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 	// 5. client.jar 下载（启用增量缓存: 先查 CacheStore）
 	// =============================================
 	if !state.HasCompleted(launcher.PhaseClientJar) {
-		// 读取 local config 获取安装目录
-		localCfg, _ := mg.LoadLocal()
-		installPath := ".minecraft"
-		if localCfg != nil && localCfg.InstallPath != "" {
-			installPath = localCfg.InstallPath
-		}
-		is := launcher.NewIncrementalSync(cfgDir, installPath)
+		is = launcher.NewIncrementalSync(cfgDir, installPath)
 
 		jarPath := ""
 		if meta.Downloads != nil && meta.Downloads.Client != nil {
@@ -373,14 +397,8 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 			return
 		}
 
-		// 初始化 IncrementalSync（如果尚未初始化）
-		localCfg, _ := mg.LoadLocal()
-		installPath := ".minecraft"
-		if localCfg != nil && localCfg.InstallPath != "" {
-			installPath = localCfg.InstallPath
-		}
-		is := launcher.NewIncrementalSync(cfgDir, installPath)
-		_ = is
+		// 初始化 IncrementalSync
+		is = launcher.NewIncrementalSync(cfgDir, installPath)
 
 		assetFiles := am.ListObjects(assetIdx)
 		logger.Info("开始 Asset 文件下载 (8 workers, %d 个文件, 增量缓存)...", len(assetFiles))
@@ -460,12 +478,7 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 		lm := launcher.NewLibraryManager(libraryDir, nativesDir)
 
 		// 初始化 IncrementalSync
-		localCfg, _ := mg.LoadLocal()
-		installPath := ".minecraft"
-		if localCfg != nil && localCfg.InstallPath != "" {
-			installPath = localCfg.InstallPath
-		}
-		is := launcher.NewIncrementalSync(cfgDir, installPath)
+		is = launcher.NewIncrementalSync(cfgDir, installPath)
 
 		fmt.Printf("\n=== 同步 Libraries ===\n")
 		resolvedLibs, err := vm.ResolveLibraries(meta, filepath.Join(cfgDir, "versions"))
@@ -523,12 +536,6 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 	// 9. 增量同步收尾 — 创建/更新 repo 快照
 	// =============================================
 	{
-		localCfg, _ := mg.LoadLocal()
-		installPath := ".minecraft"
-		if localCfg != nil && localCfg.InstallPath != "" {
-			installPath = localCfg.InstallPath
-		}
-
 		is := launcher.NewIncrementalSync(cfgDir, installPath)
 
 		// 初始化 repo
