@@ -116,14 +116,51 @@ type SelfUpdate struct {
 
 // LocalConfig 用户本地偏好配置
 type LocalConfig struct {
-	MinecraftDir string               `json:"minecraft_dir,omitempty"`
-	ServerURL    string               `json:"server_url,omitempty"`
-	ServerToken  string               `json:"server_token,omitempty"`
-	Packs        map[string]PackState `json:"packs,omitempty"`
-	Launcher     string               `json:"launcher,omitempty"` // "bare" | "pcl2" | "hmcl"
-	JavaHome     string               `json:"java_home,omitempty"`
-	Username     string               `json:"username,omitempty"`
-	MirrorMode   string               `json:"mirror_mode,omitempty"` // "auto" | "china" | "global"
+	MinecraftDir  string               `json:"minecraft_dir,omitempty"`  // 已废弃，读取时自动迁移到 MinecraftDirs["_default"]
+	MinecraftDirs map[string]string    `json:"minecraft_dirs,omitempty"` // key=包名, val=.minecraft路径
+	ServerURL     string               `json:"server_url,omitempty"`
+	ServerToken   string               `json:"server_token,omitempty"`
+	Packs         map[string]PackState `json:"packs,omitempty"`
+	Launcher      string               `json:"launcher,omitempty"` // "bare" | "pcl2" | "hmcl"
+	JavaHome      string               `json:"java_home,omitempty"`
+	Username      string               `json:"username,omitempty"`
+	MirrorMode    string               `json:"mirror_mode,omitempty"` // "auto" | "china" | "global"
+}
+
+// GetMinecraftDir 获取指定包对应的 .minecraft 目录
+// 优先返回包专用目录，回退到 _default，再回退到旧 MinecraftDir
+func (c *LocalConfig) GetMinecraftDir(packName string) string {
+	if c.MinecraftDirs != nil {
+		if dir, ok := c.MinecraftDirs[packName]; ok && dir != "" {
+			return dir
+		}
+		if dir, ok := c.MinecraftDirs["_default"]; ok && dir != "" {
+			return dir
+		}
+	}
+	if c.MinecraftDir != "" {
+		return c.MinecraftDir
+	}
+	return ""
+}
+
+// SetMinecraftDir 设置指定包的 .minecraft 目录
+func (c *LocalConfig) SetMinecraftDir(packName, mcDir string) {
+	if c.MinecraftDirs == nil {
+		c.MinecraftDirs = make(map[string]string)
+	}
+	c.MinecraftDirs[packName] = mcDir
+}
+
+// MigrateMinecraftDir 兼容旧字段：读取时将 MinecraftDir 迁移到 MinecraftDirs["_default"]
+func (c *LocalConfig) MigrateMinecraftDir() {
+	if c.MinecraftDir != "" && (c.MinecraftDirs == nil || c.MinecraftDirs["_default"] == "") {
+		if c.MinecraftDirs == nil {
+			c.MinecraftDirs = make(map[string]string)
+		}
+		c.MinecraftDirs["_default"] = c.MinecraftDir
+		// 不清空旧字段，保存时不写旧字段即可
+	}
 }
 
 // ============================================================

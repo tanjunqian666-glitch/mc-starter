@@ -300,7 +300,7 @@ func runSetupWizard(a *App) {
 func detectLauncher() string {
 	result := launcher.FindPCL2()
 	if result != nil {
-		return filepath.Join(result.PCLDir, "PCL2.exe")
+		return result.Path
 	}
 	// 也搜一下 HMCL
 	// 目前 FindPCL2 已覆盖常见路径

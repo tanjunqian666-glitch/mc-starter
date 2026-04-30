@@ -202,10 +202,14 @@ func run(cfgDir string, verbose bool, headless bool, dryRun bool) {
 		localCfg.Launcher = "auto"
 	}
 
-	// 检测启动器
+	// 检测启动器并写回配置
 	pclDetected := launcher.FindPCL2()
 	if pclDetected != nil {
 		fmt.Printf("[✓] 检测到 PCL2: %s\n", pclDetected.Summary())
+		localCfg.Launcher = "pcl2"
+		if err := mg.SaveLocal(localCfg); err != nil {
+			logger.Warn("保存启动器配置失败: %v", err)
+		}
 	} else {
 		fmt.Println("[*] 未检测到 PCL2，使用裸启动模式")
 	}
@@ -270,8 +274,6 @@ func run(cfgDir string, verbose bool, headless bool, dryRun bool) {
 	logger.Info("run: 全自动模式完成")
 
 	// P3 自更新: 标记新版本启动成功
-	mg := config.New(cfgDir)
-	localCfg, _ := mg.LoadLocal()
 	updater2 := launcher.NewSelfUpdater(filepath.Join(cfgDir, ".local"), version, localCfg.ServerURL)
 	updater2.MarkStartupOK()
 }
@@ -327,7 +329,15 @@ func check(cfgDir string, verbose bool) {
 		fmt.Printf("[✗] 本地配置: %v\n", err)
 	} else {
 		fmt.Printf("[✓] 本地配置: %s\n", cfgDir)
-		fmt.Printf("    安装目录: %s\n", localCfg.MinecraftDir)
+		// 新版多目录支持
+		if localCfg.MinecraftDirs != nil && len(localCfg.MinecraftDirs) > 0 {
+			fmt.Printf("    安装目录:\n")
+			for packName, mcDir := range localCfg.MinecraftDirs {
+				fmt.Printf("      %s → %s\n", packName, mcDir)
+			}
+		} else {
+			fmt.Printf("    安装目录: %s\n", localCfg.MinecraftDir)
+		}
 		fmt.Printf("    启动器: %s\n", localCfg.Launcher)
 	}
 
@@ -340,18 +350,58 @@ func check(cfgDir string, verbose bool) {
 		fmt.Printf("    最新: release=%s  snapshot=%s\n", manifest.Latest.Release, manifest.Latest.Snapshot)
 	}
 
-	// 3. 检查安装目录
-	if localCfg != nil && localCfg.MinecraftDir != "" {
-		if info, err := os.Stat(localCfg.MinecraftDir); err == nil {
-			fmt.Printf("[✓] 安装目录: %s (%d MB 可用)\n", localCfg.MinecraftDir, info.Size()/1024/1024)
-		} else {
-			fmt.Printf("[!] 安装目录不存在: %s\n", localCfg.MinecraftDir)
+	// 3. 检测启动器
+	pclResult := launcher.FindPCL2()
+	if pclResult != nil {
+		fmt.Printf("[✓] PCL2 启动器: %s (v%s)\n", pclResult.Path, pclResult.Version)
+	} else {
+		fmt.Println("[*] 未检测到 PCL2")
+	}
+
+	// 4. 扫描 MC 目录
+	managed, raw := launcher.ResolveMinecraftDirs()
+	if len(managed) > 0 {
+		fmt.Printf("[✓] 已托管 MC 目录: %d 个\n", len(managed))
+		for _, m := range managed {
+			packs := "无"
+			if len(m.Packs) > 0 {
+				packs = strings.Join(m.Packs, ", ")
+			}
+			fmt.Printf("    - %s (包: %s, 更新: %s)\n", m.Path, packs, m.UpdatedAt)
+		}
+	}
+	if len(raw) > 0 {
+		fmt.Printf("[*] 未托管但含 MC 的目录: %d 个\n", len(raw))
+		for _, r := range raw {
+			fmt.Printf("    - %s\n", r)
 		}
 	}
 
-	// TODO: Java 检测（P3）
+	// 5. 检查疑似副本
+	packNames := make([]string, 0, len(localCfg.Packs))
+	for name := range localCfg.Packs {
+		packNames = append(packNames, name)
+	}
+	for _, packName := range packNames {
+		mcDir := localCfg.GetMinecraftDir(packName)
+		if mcDir == "" {
+			continue
+		}
+		packsDir := filepath.Join(mcDir, "packs")
+		suspects := launcher.FindSuspectedDuplicates(packsDir, packName)
+		if len(suspects) > 0 {
+			fmt.Printf("[!] 包 %s 发现疑似重复目录:\n", packName)
+			for _, s := range suspects {
+				fmt.Printf("    - %s\n", s)
+			}
+		}
+	}
+
+	// 6. Java 检测
 	fmt.Println("[…] Java 检测: 待实现 (P3)")
 }
+
+func sync(cfgDir string, verbose bool, dryRun bool) {
 
 func sync(cfgDir string, verbose bool, dryRun bool) {
 	logger.Init(verbose)
@@ -1595,22 +1645,113 @@ func handleFabric(args []string) {
 
 // handlePCL 处理 pcl 子命令
 func handlePCL(args []string) {
+	cfgDir, _, _, _, _ := parseGlobalFlags() // 重新解析，方便读配置
+
 	if len(args) == 0 {
-		fmt.Println("pcl: subcommand required (detect | path)")
+		fmt.Println("pcl: subcommand required (detect | set-dir | path)")
+		fmt.Println("  detect         检测启动器和 MC 目录")
+		fmt.Println("  set-dir <包名> <序号>  为指定包选择目录")
+		fmt.Println("  path <路径>    手动指定启动器路径")
 		return
 	}
 	switch args[0] {
 	case "detect":
-		fmt.Println("pcl detect: not yet implemented")
+		handlePCLDetect(cfgDir)
+	case "set-dir":
+		if len(args) < 3 {
+			fmt.Println("pcl set-dir: 需要包名和目录序号")
+			fmt.Println("用法: starter pcl set-dir <包名> <序号>")
+			return
+		}
+		handlePCLSetDir(cfgDir, args[1], args[2])
 	case "path":
 		if len(args) < 2 {
 			fmt.Println("pcl path: path required")
 			return
 		}
-		fmt.Printf("pcl path: set to %s (not yet implemented)\n", args[1])
+		fmt.Printf("pcl path: set to %s\n", args[1])
 	default:
 		fmt.Printf("pcl: unknown subcommand %s\n", args[0])
 	}
+}
+
+// handlePCLDetect 检测启动器和 MC 目录
+func handlePCLDetect(cfgDir string) {
+	pclResult := launcher.FindPCL2()
+
+	fmt.Println("=== 启动器检测 ===")
+	if pclResult != nil {
+		fmt.Printf("[✓] PCL2: %s (v%s, 检测级别 %d)\n", pclResult.Path, pclResult.Version, pclResult.Level)
+	} else {
+		fmt.Println("[*] 未检测到 PCL2")
+	}
+
+	// 读取 PCL.ini 配置
+	managed, raw := launcher.ResolveMinecraftDirs()
+	fmt.Println("\n=== Minecraft 目录 ===")
+	allDirs := append([]launcher.ManagedMCDir{}, managed...)
+	idx := 1
+	for _, m := range managed {
+		packs := "无"
+		if len(m.Packs) > 0 {
+			packs = strings.Join(m.Packs, ", ")
+		}
+		fmt.Printf("  %d. %s [已托管] (包: %s)\n", idx, m.Path, packs)
+		idx++
+	}
+	for _, r := range raw {
+		fmt.Printf("  %d. %s [候选]\n", idx, r)
+		allDirs = append(allDirs, launcher.ManagedMCDir{Path: r})
+		idx++
+	}
+
+	if len(allDirs) == 0 {
+		fmt.Println("  (未找到任何 Minecraft 目录)")
+		return
+	}
+
+	// 显示当前配置
+	mg := config.New(cfgDir)
+	localCfg, _ := mg.LoadLocal()
+	fmt.Println("\n=== 当前配置 ===")
+	for packName := range localCfg.Packs {
+		mcDir := localCfg.GetMinecraftDir(packName)
+		if mcDir == "" {
+			fmt.Printf("  %s → (未选择)\n", packName)
+		} else {
+			fmt.Printf("  %s → %s\n", packName, mcDir)
+		}
+	}
+	if len(localCfg.Packs) == 0 {
+		fmt.Println("  (尚无管理的包)")
+		fmt.Println("  [提示]: 运行 starter sync 后会注册管理的包")
+	}
+	fmt.Println("\n使用 starter pcl set-dir <包名> <序号> 为指定包选择目录")
+}
+
+// handlePCLSetDir 为指定包设置目录
+func handlePCLSetDir(cfgDir, packName, indexStr string) {
+	managed, raw := launcher.ResolveMinecraftDirs()
+	allDirs := append([]launcher.ManagedMCDir{}, managed...)
+	for _, r := range raw {
+		allDirs = append(allDirs, launcher.ManagedMCDir{Path: r})
+	}
+
+	var idx int
+	if _, err := fmt.Sscanf(indexStr, "%d", &idx); err != nil || idx < 1 || idx > len(allDirs) {
+		fmt.Printf("无效序号: %s (有效范围 1-%d)\n", indexStr, len(allDirs))
+		return
+	}
+
+	selectedPath := allDirs[idx-1].Path
+	mg := config.New(cfgDir)
+	localCfg, _ := mg.LoadLocal()
+	localCfg.SetMinecraftDir(packName, selectedPath)
+	if err := mg.SaveLocal(localCfg); err != nil {
+		fmt.Printf("[✗] 保存配置失败: %v\n", err)
+		return
+	}
+	fmt.Printf("[✓] 包 %s → %s\n", packName, selectedPath)
 }
 
 func handlePack(args []string) {

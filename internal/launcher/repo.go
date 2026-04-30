@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gege-tlph/mc-starter/internal/logger"
+	"github.com/gege-tlph/mc-starter/internal/model"
 )
 
 // ============================================================
@@ -43,6 +44,7 @@ type RepoMeta struct {
 	TotalCacheSize int64     `json:"total_cache_size"` // 缓存总字节数
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+	ManagedPacks   []string  `json:"managed_packs,omitempty"` // 本目录管理的包名列表
 }
 
 // SnapshotMeta 快照元信息
@@ -965,6 +967,207 @@ func (r *LocalRepo) Ensure(mcVersion string) error {
 // BaseDir 返回仓库基础目录
 func (r *LocalRepo) BaseDir() string {
 	return r.baseDir
+}
+
+// ============================================================
+// P5.3 启动器感知 — sentinel 标记 & 目录管理
+// ============================================================
+
+// IsManaged 检查 .minecraft 目录是否已被 mc-starter 托管
+// 通过检测 starter_repo/repo.json 是否存在且有效
+func IsManaged(mcDir string) bool {
+	repo := NewLocalRepo(mcDir)
+	return repo.IsInitialized()
+}
+
+// ManagedMCDir 被托管的 .minecraft 目录信息
+type ManagedMCDir struct {
+	Path      string   `json:"path"`       // .minecraft 路径
+	Packs     []string `json:"packs"`      // 本目录管理的包名列表
+	UpdatedAt string   `json:"updated_at"` // 更新时间（ISO8601）
+}
+
+// IsManagedDirs 扫描所有候选目录，返回被托管的和未被托管的
+// candidates: 候选 .minecraft 目录列表
+// 返回: managed（已托管的）+ raw（未托管但有 MC 特征的）
+func IsManagedDirs(candidates []string) (managed []ManagedMCDir, raw []string) {
+	for _, dir := range candidates {
+		if !IsManaged(dir) {
+			// 未托管但有 MC 特征（versions/ 目录）
+			if _, err := os.Stat(filepath.Join(dir, "versions")); err == nil {
+				raw = append(raw, dir)
+			}
+			continue
+		}
+		repo := NewLocalRepo(dir)
+		packs := make([]string, len(repo.meta.ManagedPacks))
+		copy(packs, repo.meta.ManagedPacks)
+		md := ManagedMCDir{
+			Path:      dir,
+			Packs:     packs,
+			UpdatedAt: repo.meta.UpdatedAt.Format(time.RFC3339),
+		}
+		managed = append(managed, md)
+	}
+	return
+}
+
+// SetManagedPacks 设置/更新本仓库管理的包名列表
+// 在每次更新/同步后调用，刷新 ManagedPacks 字段
+func (r *LocalRepo) SetManagedPacks(packNames []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.meta.ManagedPacks = packNames
+	r.meta.UpdatedAt = time.Now()
+	return r.saveMeta()
+}
+
+// AddManagedPack 添加一个包名到管理列表
+func (r *LocalRepo) AddManagedPack(packName string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, p := range r.meta.ManagedPacks {
+		if p == packName {
+			return nil // 已存在
+		}
+	}
+	r.meta.ManagedPacks = append(r.meta.ManagedPacks, packName)
+	r.meta.UpdatedAt = time.Now()
+	return r.saveMeta()
+}
+
+// ResolveDir 在同包名多副本冲突时选择最佳目录
+// candidates: 同一包名对应的多个托管目录候选
+// cfg: 本地配置（优先取已记录的路径）
+// 优先级: 已记录 > 标记存在包目录 > 最新 > 路径最短
+func ResolveDir(packName string, candidates []ManagedMCDir, cfg *model.LocalConfig) string {
+	if len(candidates) == 0 {
+		return ""
+	}
+	if len(candidates) == 1 {
+		return candidates[0].Path
+	}
+
+	// 优先级 1：已记录的配置
+	if cfg != nil && cfg.MinecraftDirs != nil {
+		if recorded, ok := cfg.MinecraftDirs[packName]; ok {
+			for _, c := range candidates {
+				if c.Path == recorded {
+					return c.Path
+				}
+			}
+		}
+		// 兜底 _default
+		if recorded, ok := cfg.MinecraftDirs["_default"]; ok {
+			for _, c := range candidates {
+				if c.Path == recorded {
+					return c.Path
+				}
+			}
+		}
+	}
+
+	// 优先级 2：标记存在 packs/{packName}/ 目录的
+	for _, c := range candidates {
+		packDir := filepath.Join(c.Path, "packs", packName)
+		if info, err := os.Stat(packDir); err == nil && info.IsDir() {
+			return c.Path
+		}
+	}
+
+	// 优先级 3：按更新时间排序，选最新的
+	sort.Slice(candidates, func(i, j int) bool {
+		tI, _ := time.Parse(time.RFC3339, candidates[i].UpdatedAt)
+		tJ, _ := time.Parse(time.RFC3339, candidates[j].UpdatedAt)
+		return tI.After(tJ)
+	})
+
+	// 优先级 4：路径最短（越深层越不像主目录）
+	shortest := candidates[0].Path
+	for _, c := range candidates[1:] {
+		if len(c.Path) < len(shortest) {
+			shortest = c.Path
+		} else if len(c.Path) == len(shortest) && c.Path < shortest {
+			shortest = c.Path
+		}
+	}
+	return shortest
+}
+
+// FindSuspectedDuplicates 扫描本地 packs/ 下疑似服务端指定包的副本
+// 返回疑似副本目录名列表（不含完全匹配的那个）
+func FindSuspectedDuplicates(packsDir, serverPackName string) []string {
+	entries, err := os.ReadDir(packsDir)
+	if err != nil {
+		return nil
+	}
+
+	var suspects []string
+	prefix := strings.ToLower(serverPackName)
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if name == serverPackName {
+			continue // 完全匹配，不是副本
+		}
+		// 前缀匹配：main-pack-copy → 含 main-pack 前缀
+		if strings.HasPrefix(strings.ToLower(name), prefix) {
+			suspects = append(suspects, name)
+		}
+	}
+	return suspects
+}
+
+// ResolveMinecraftDirs 从 PCL 配置 + 默认路径收集所有候选 .minecraft 目录
+// 返回已托管和未托管的目录列表
+func ResolveMinecraftDirs() (managed []ManagedMCDir, raw []string) {
+	// Step 1: 从 PCL 检测获取候选目录
+	candidates := getPCLCandidates()
+
+	// Step 2: 加上默认路径（去重）
+	defaultSearchPaths := []string{
+		filepath.Join(homeDir(), ".minecraft"),
+		filepath.Join(homeDir(), "AppData", "Roaming", ".minecraft"),
+	}
+	for _, p := range defaultSearchPaths {
+		found := false
+		for _, c := range candidates {
+			if c == p {
+				found = true
+				break
+			}
+		}
+		if !found {
+			candidates = append(candidates, p)
+		}
+	}
+
+	return IsManagedDirs(candidates)
+}
+
+// getPCLCandidates 通过检测 PCL2 并读取 PCL.ini 获取 .minecraft 目录列表
+func getPCLCandidates() []string {
+	pclResult := FindPCL2()
+	if pclResult == nil {
+		return nil
+	}
+	cfg, err := pclResult.ReadPCLConfig()
+	if err != nil {
+		return nil
+	}
+	return cfg.MinecraftDirs
+}
+
+// homeDir 获取用户主目录
+func homeDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "."
+	}
+	return home
 }
 
 // ScanDirectory 扫描一个目录，返回文件清单（用于创建快照或差异计算）

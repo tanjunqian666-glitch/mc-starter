@@ -225,10 +225,11 @@ func (m *Manager) LoadLocal() (*model.LocalConfig, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &model.LocalConfig{
-				Launcher:   "bare",
-				MirrorMode: "auto",
-				Username:   "Player",
-				Packs:      make(map[string]model.PackState),
+				Launcher:     "bare",
+				MirrorMode:   "auto",
+				Username:     "Player",
+				Packs:        make(map[string]model.PackState),
+				MinecraftDirs: make(map[string]string),
 			}, nil
 		}
 		return nil, fmt.Errorf("读取本地配置 %s: %w", path, err)
@@ -240,6 +241,11 @@ func (m *Manager) LoadLocal() (*model.LocalConfig, error) {
 	if cfg.Packs == nil {
 		cfg.Packs = make(map[string]model.PackState)
 	}
+	if cfg.MinecraftDirs == nil {
+		cfg.MinecraftDirs = make(map[string]string)
+	}
+	// 迁移旧 MinecraftDir 到 MinecraftDirs["_default"]
+	cfg.MigrateMinecraftDir()
 	return &cfg, nil
 }
 
@@ -251,6 +257,11 @@ func (m *Manager) SaveLocal(cfg *model.LocalConfig) error {
 	if cfg.Packs == nil {
 		cfg.Packs = make(map[string]model.PackState)
 	}
+	if cfg.MinecraftDirs == nil {
+		cfg.MinecraftDirs = make(map[string]string)
+	}
+	// 保存时清空旧字段，用新版 MinecraftDirs
+	cfg.MinecraftDir = ""
 	path := filepath.Join(m.dir, "local.json")
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -262,13 +273,12 @@ func (m *Manager) SaveLocal(cfg *model.LocalConfig) error {
 	return nil
 }
 
-// GetMinecraftDir 获取 .minecraft 目录（带默认值）
+// GetMinecraftDir 获取 .minecraft 目录（指定包的目录，回退到 _default）
 func (m *Manager) GetMinecraftDir(localCfg *model.LocalConfig) string {
-	if localCfg.MinecraftDir != "" {
-		return localCfg.MinecraftDir
-	}
-	return ".minecraft"
+	return localCfg.GetMinecraftDir("")
 }
+
+// GetPackWorkDir 获取指定包的工作目录
 
 // GetPackWorkDir 获取指定包的工作目录
 func (m *Manager) GetPackWorkDir(mcDir, packName string) string {
