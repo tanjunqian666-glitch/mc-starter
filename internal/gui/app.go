@@ -75,7 +75,8 @@ func Run(cfgDir string) error {
 	// 确定初始选中版本
 	app.determineInitialPack()
 
-	return app.buildUI().Run()
+	app.buildUI().Run()
+	return nil
 }
 
 func (a *App) buildUI() *walk.MainWindow {
@@ -98,7 +99,8 @@ func (a *App) buildUI() *walk.MainWindow {
 					HSpacer{},
 					PushButton{
 						Text:  "⚙",
-						Width: 28,
+						MinSize: Size{28, 0},
+						MaxSize: Size{28, 0},
 						OnClicked: func() {
 							a.openSettings()
 						},
@@ -343,10 +345,10 @@ func (a *App) openLauncher() {
 		return
 	}
 	if a.currentVersion == "(未安装)" {
-		walk.MsgBox(a.mw, "提示", "请先点击更新安装此版本")
+		walk.MsgBox(a.mw, "提示", "请先点击更新安装此版本", walk.MsgBoxOK)
 		return
 	}
-	walk.MsgBox(a.mw, "提示", fmt.Sprintf("打开启动器: %s\n（功能开发中）", a.selectedPack))
+	walk.MsgBox(a.mw, "提示", fmt.Sprintf("打开启动器: %s\n（功能开发中）", a.selectedPack), walk.MsgBoxOK)
 }
 
 func (a *App) startSync() {
@@ -407,7 +409,7 @@ func (a *App) startSync() {
 
 			a.currentVersion = a.latestVersion
 			a.refreshUI()
-			walk.MsgBox(a.mw, "完成", fmt.Sprintf("%s 已更新到 %s", a.selectedPack, a.latestVersion))
+			walk.MsgBox(a.mw, "完成", fmt.Sprintf("%s 已更新到 %s", a.selectedPack, a.latestVersion), walk.MsgBoxOK)
 			a.statusBar.SetText("已是最新")
 		})
 	}()
@@ -430,7 +432,7 @@ func (a *App) handleSyncCancel() {
 		a.statusBar.SetText("已取消")
 		a.statusBar.SetTextColor(walk.RGB(200, 100, 0))
 		a.refreshUI()
-		walk.MsgBox(a.mw, "提示", "同步已取消，已回滚到同步前状态")
+		walk.MsgBox(a.mw, "提示", "同步已取消，已回滚到同步前状态", walk.MsgBoxOK)
 	})
 }
 

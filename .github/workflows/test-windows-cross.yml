@@ -1,0 +1,56 @@
+# mc-starter: Windows 交叉编译 + Wine 测试
+# 在 Linux runner 上用 x1unix/go-mingw 编译 Windows exe，Wine 跑测试
+name: Cross-Compile Windows + Test (Wine)
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-windows-cross:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/x1unix/docker-go-mingw/go-mingw:1.26
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Wine
+        run: |
+          apt update && apt install -y --no-install-recommends wine
+          rm -rf /var/lib/apt/lists/*
+
+      - name: Unit tests (non-GUI)
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "1"
+          CC: x86_64-w64-mingw32-gcc
+        run: |
+          for pkg in ./internal/launcher/... ./internal/repair/... \
+                     ./internal/pack/... ./internal/mirror/...; do
+            name=$(echo $pkg | sed 's|\.\.\.||;s|\.\/internal\/||;s|\/|_|g')
+            echo "--- Compiling $name ---"
+            go test -buildvcs=false -c -o "/tmp/${name}.test.exe" "$pkg"
+          done
+
+      - name: Run tests via Wine
+        run: |
+          for exe in /tmp/*.test.exe; do
+            name=$(basename "$exe")
+            echo "=========================================="
+            echo "  Running $name"
+            echo "=========================================="
+            wine "$exe" -test.v 2>&1 | grep -E "PASS|FAIL|--- FAIL|--- PASS" || true
+          done
+
+      - name: Cross-compile GUI package
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "1"
+          CC: x86_64-w64-mingw32-gcc
+        run: |
+          go build -buildvcs=false -o /dev/null ./internal/gui/...

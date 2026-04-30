@@ -46,7 +46,8 @@ func showSettings(a *App) {
 					LineEdit{Text: &launcherPath, MinSize: Size{220, 0}},
 					PushButton{
 						Text:  "🔍",
-						Width: 28,
+						MinSize: Size{28, 0},
+						MaxSize: Size{28, 0},
 						OnClicked: func() {
 							// 复用 pcl_detect 的逻辑
 							detected := detectLauncher()
@@ -57,13 +58,14 @@ func showSettings(a *App) {
 									// walk 的 LineEdit 通过指针绑定自动同步
 								})
 							} else {
-								walk.MsgBox(dlg, "未检测到", "未找到 PCL2 或 HMCL，请手动选择")
+								walk.MsgBox(dlg, "未检测到", "未找到 PCL2 或 HMCL，请手动选择", walk.MsgBoxOK)
 							}
 						},
 					},
 					PushButton{
 						Text:  "📁",
-						Width: 28,
+						MinSize: Size{28, 0},
+						MaxSize: Size{28, 0},
 						OnClicked: func() {
 							picked := pickFile(dlg, "选择启动器", "可执行文件 (*.exe)|*.exe")
 							if picked != "" {
@@ -83,19 +85,21 @@ func showSettings(a *App) {
 					LineEdit{Text: &mcDir, MinSize: Size{220, 0}},
 					PushButton{
 						Text:  "🔍",
-						Width: 28,
+						MinSize: Size{28, 0},
+						MaxSize: Size{28, 0},
 						OnClicked: func() {
 							detected := detectMinecraftDir()
 							if detected != "" {
 								mcDir = detected
 							} else {
-								walk.MsgBox(dlg, "未检测到", "未找到 .minecraft 目录，请手动选择")
+								walk.MsgBox(dlg, "未检测到", "未找到 .minecraft 目录，请手动选择", walk.MsgBoxOK)
 							}
 						},
 					},
 					PushButton{
 						Text:  "📁",
-						Width: 28,
+						MinSize: Size{28, 0},
+						MaxSize: Size{28, 0},
 						OnClicked: func() {
 							picked := pickDir(dlg, "选择 Minecraft 根目录")
 							if picked != "" {
@@ -128,7 +132,7 @@ func showSettings(a *App) {
 						OnClicked: func() {
 							// 验证必需字段
 							if serverURL == "" {
-								walk.MsgBox(dlg, "提示", "请输入服务器 API 地址")
+								walk.MsgBox(dlg, "提示", "请输入服务器 API 地址", walk.MsgBoxOK)
 								return
 							}
 
@@ -139,7 +143,7 @@ func showSettings(a *App) {
 							a.Unlock()
 
 							if err := a.cfg.SaveLocal(a.localCfg); err != nil {
-								walk.MsgBox(dlg, "错误", fmt.Sprintf("保存配置失败: %v", err))
+								walk.MsgBox(dlg, "错误", fmt.Sprintf("保存配置失败: %v", err), walk.MsgBoxOK)
 								return
 							}
 
@@ -164,7 +168,7 @@ func showSettings(a *App) {
 			},
 		},
 	}.Create(a.mw)); err != nil {
-		walk.MsgBox(a.mw, "错误", fmt.Sprintf("打开设置失败: %v", err))
+		walk.MsgBox(a.mw, "错误", fmt.Sprintf("打开设置失败: %v", err), walk.MsgBoxOK)
 		return
 	}
 

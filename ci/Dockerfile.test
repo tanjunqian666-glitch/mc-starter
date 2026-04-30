@@ -1,0 +1,8 @@
+FROM x1unix/go-mingw:latest
+
+RUN apt update && apt install -y --no-install-recommends wine && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+ENV GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc
+ENV WINEPREFIX=/tmp/wine

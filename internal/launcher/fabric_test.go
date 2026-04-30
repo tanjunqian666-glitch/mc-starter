@@ -85,7 +85,7 @@ func TestParseFabricProfile(t *testing.T) {
 
 	// 验证 Maven 路径转换
 	asmFile := files[0]
-	if !strings.Contains(asmFile.LocalPath, "org/ow2/asm/asm/9.9/asm-9.9.jar") {
+	if !strings.Contains(asmFile.LocalPath, filepath.FromSlash("org/ow2/asm/asm/9.9/asm-9.9.jar")) {
 		t.Errorf("期望 Maven 路径包含 asm-9.9.jar, 得到 %s", asmFile.LocalPath)
 	}
 	if !strings.Contains(asmFile.URL, "https://maven.fabricmc.net/") {
@@ -94,13 +94,13 @@ func TestParseFabricProfile(t *testing.T) {
 
 	// 验证 fabric-loader
 	loaderFile := files[1]
-	if !strings.Contains(loaderFile.LocalPath, "net/fabricmc/fabric-loader") {
+	if !strings.Contains(loaderFile.LocalPath, filepath.FromSlash("net/fabricmc/fabric-loader")) {
 		t.Errorf("期望路径包含 fabric-loader, 得到 %s", loaderFile.LocalPath)
 	}
 
 	// 验证 intermediary
 	intermediaryFile := files[2]
-	if !strings.Contains(intermediaryFile.LocalPath, "net/fabricmc/intermediary") {
+	if !strings.Contains(intermediaryFile.LocalPath, filepath.FromSlash("net/fabricmc/intermediary")) {
 		t.Errorf("期望路径包含 intermediary, 得到 %s", intermediaryFile.LocalPath)
 	}
 }

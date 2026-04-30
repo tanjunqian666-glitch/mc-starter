@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/gege-tlph/mc-starter/internal/launcher"
@@ -131,7 +132,7 @@ func runSetupWizard(a *App) {
 							case 0:
 								// 验证 API
 								if apiEdit.Text() == "" {
-									walk.MsgBox(dlg, "提示", "请输入服务器 API 地址")
+									walk.MsgBox(dlg, "提示", "请输入服务器 API 地址", walk.MsgBoxOK)
 									return
 								}
 								serverURL = apiEdit.Text()
@@ -209,7 +210,7 @@ func runSetupWizard(a *App) {
 			},
 		},
 	}.Create(a.mw)); err != nil {
-		walk.MsgBox(a.mw, "错误", fmt.Sprintf("启动配置向导失败: %v", err))
+		walk.MsgBox(a.mw, "错误", fmt.Sprintf("启动配置向导失败: %v", err), walk.MsgBoxOK)
 		return
 	}
 
@@ -235,7 +236,7 @@ func runSetupWizard(a *App) {
 func detectLauncher() string {
 	result := launcher.FindPCL2()
 	if result != nil {
-		return filepath.Join(result.MinecraftDir, "PCL2.exe")
+		return filepath.Join(result.PCLDir, "PCL2.exe")
 	}
 	// 也搜一下 HMCL
 	// 目前 FindPCL2 已覆盖常见路径
@@ -246,15 +247,16 @@ func detectLauncher() string {
 func detectMinecraftDir() string {
 	// 搜索常见位置
 	candidates := []string{
-		filepath.Join(walk.Getenv("APPDATA"), ".minecraft"),
-		filepath.Join(walk.Getenv("USERPROFILE"), "AppData", "Roaming", ".minecraft"),
+		// APPDATA/.minecraft
+		filepath.Join(os.Getenv("APPDATA"), ".minecraft"),
+		filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Roaming", ".minecraft"),
 		// PCL2 同目录
 		filepath.Join(".minecraft"),
 	}
 
 	for _, dir := range candidates {
 		verDir := filepath.Join(dir, "versions")
-		if info, err := walk.Stat(verDir); err == nil && info.IsDir() {
+		if info, err := os.Stat(verDir); err == nil && info.IsDir() {
 			return dir
 		}
 	}

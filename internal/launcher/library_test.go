@@ -105,7 +105,7 @@ func TestShouldInclude(t *testing.T) {
 		}, false},
 		{"disallow windows + arch x86（64位不匹配disallow）", []Rule{
 			{Action: "disallow", OS: &OSRule{Name: "windows", Arch: "x86"}},
-		}, !isWindows}, // arch=x86 不匹配 64 位 → disallow 不生效 → 如果 OS 匹配则允许
+		}, true}, // arch=x86 不匹配 64 位 → disallow 不生效 → 全部允许
 
 		// 只有 disallow 没有 allow
 		{"只有 disallow linux（不匹配 → 允许）", []Rule{
