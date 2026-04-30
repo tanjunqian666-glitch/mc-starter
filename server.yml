@@ -1,0 +1,18 @@
+server:
+    host: 0.0.0.0
+    port: 8443
+    tls_enabled: false
+    tls_cert: ""
+    tls_key: ""
+auth:
+    enabled: true
+    admin_token: change-me-please
+    client_require_token: false
+storage:
+    store_type: json
+    data_dir: ./data
+    packs_dir: ./packs
+    file_storage: local
+    max_pack_size_mb: 1024
+packs:
+    default_primary: ""

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -331,6 +332,16 @@ func (s *Server) handleImportPack(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("WARN: 文件存储失败: %v\n", err)
 	}
 
+	// 保存 zip 副本到版本目录（用于全量下载）
+	versionsDir := s.store.VersionsDir(name)
+	zipDest := filepath.Join(versionsDir, result.Version+".draft", "pack.zip")
+	if err := os.MkdirAll(filepath.Dir(zipDest), 0755); err == nil {
+		srcData, err := os.ReadFile(tmpFile.Name())
+		if err == nil {
+			os.WriteFile(zipDest, srcData, 0644)
+		}
+	}
+
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -533,9 +544,24 @@ func toFileChangeEntriesFromDiff(entries []pack.FileEntry) []any {
 
 // copyFilesToStore 将 zip 中的文件按 hash 复制到文件存储
 func copyFilesToStore(zipPath, filesDir string, manifest *pack.Manifest) error {
-	for _, f := range manifest.Files {
-		hashDir := filepath.Join(filesDir, f.SHA256[:2])
-		destPath := filepath.Join(hashDir, f.SHA256)
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return fmt.Errorf("打开 zip 文件失败: %w", err)
+	}
+	defer reader.Close()
+
+	// 构建 zip 文件路径 → zip.File 映射
+	zipFileMap := make(map[string]*zip.File, len(reader.File))
+	for _, f := range reader.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		zipFileMap[f.Name] = f
+	}
+
+	for _, entry := range manifest.Files {
+		hashDir := filepath.Join(filesDir, entry.SHA256[:2])
+		destPath := filepath.Join(hashDir, entry.SHA256)
 
 		// 已存在则跳过
 		if _, err := os.Stat(destPath); err == nil {
@@ -543,14 +569,39 @@ func copyFilesToStore(zipPath, filesDir string, manifest *pack.Manifest) error {
 		}
 
 		if err := os.MkdirAll(hashDir, 0755); err != nil {
-			return fmt.Errorf("创建 hash 目录失败: %w", err)
+			return fmt.Errorf("创建 hash 目录 %s 失败: %w", hashDir, err)
 		}
 
 		// 从 zip 中提取文件
-		// 注意：这里是简化实现，实际需要重新打开 zip
-		// 在完整实现中，ImportZip 应该返回文件路径映射
-		_ = destPath
+		zf, ok := zipFileMap[entry.Path]
+		if !ok {
+			// 如果 entry.Path 带 overrides/ 前缀，尝试 strip
+			stripped := strings.TrimPrefix(entry.Path, "overrides/")
+			zf, ok = zipFileMap[stripped]
+			if !ok {
+				return fmt.Errorf("zip 中未找到文件: %s", entry.Path)
+			}
+		}
+
+		rc, err := zf.Open()
+		if err != nil {
+			return fmt.Errorf("打开 zip 内文件 %s 失败: %w", entry.Path, err)
+		}
+
+		out, err := os.Create(destPath)
+		if err != nil {
+			rc.Close()
+			return fmt.Errorf("创建文件 %s 失败: %w", destPath, err)
+		}
+
+		_, err = io.Copy(out, rc)
+		out.Close()
+		rc.Close()
+		if err != nil {
+			return fmt.Errorf("写入文件 %s 失败: %w", destPath, err)
+		}
 	}
+
 	return nil
 }
 
@@ -708,6 +759,43 @@ func (s *Server) handleCrashReport(w http.ResponseWriter, r *http.Request) {
 		Ticket: ticket,
 		Advice: "崩溃报告已接收。你可以尝试运行 `starter repair` 自动修复环境。",
 	})
+}
+
+// handleFullDownload GET /api/v1/packs/{name}/download
+// 返回全量整合包 zip（增量不可用时的兜底下载）
+func (s *Server) handleFullDownload(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	versionsDir := s.store.VersionsDir(name)
+
+	// 用 loadManifestFromDir 找出最新版本
+	from := ""
+	for {
+		manifest := loadManifestFromDir(versionsDir, from)
+		if manifest == nil {
+			break
+		}
+		from = manifest.Version
+	}
+	latest := ""
+	if m := loadManifestFromDir(versionsDir, ""); m != nil {
+		latest = m.Version
+	}
+
+	if latest == "" {
+		writeError(w, http.StatusNotFound, "VERSION_NOT_FOUND", "没有已发布版本")
+		return
+	}
+
+	zipPath := filepath.Join(versionsDir, latest, "pack.zip")
+	if _, err := os.Stat(zipPath); os.IsNotExist(err) {
+		writeError(w, http.StatusNotFound, "ZIP_NOT_FOUND", "全量包 zip 不存在，请重新导入")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-%s.zip"`, name, latest))
+	http.ServeFile(w, r, zipPath)
 }
 
 // Because go 1.22 uses the new routing pattern, we need PathValue

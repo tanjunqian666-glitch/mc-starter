@@ -255,13 +255,114 @@ func (u *Updater) applyIncremental(serverURL, packName string, update *model.Inc
 }
 
 // ============================================================
-// 全量更新（兜底）
+// 全量更新（首次部署 / 强制全量）
 // ============================================================
 
 func (u *Updater) applyFullUpdate(serverURL, packName string, update *model.IncrementalUpdate, result *UpdateResult) (*UpdateResult, error) {
-	// 全量时，需先拉 manifest 或整包 zip
-	// 目前全量未做完整实现，先报错提示
-	return result, fmt.Errorf("[%s] 全量更新尚未实现，请使用 starter sync 先同步后再 update", packName)
+	packDir := filepath.Join(u.mcDir, "packs", packName)
+
+	// 1. 拉起整包 zip
+	baseURL := strings.TrimRight(serverURL, "/")
+	fullURL := fmt.Sprintf("%s/api/v1/packs/%s/download?channels=%s",
+		baseURL, packName, strings.Join(u.getEnabledChannels(nil), ","))
+
+	tmpFile, err := os.CreateTemp("", "mc-pack-full-*.zip")
+	if err != nil {
+		return nil, fmt.Errorf("[%s] 创建临时文件失败: %w", packName, err)
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
+	logger.Info("[%s] 全量下载: %s", packName, fullURL)
+	resp, err := u.api.HTTPGet(fullURL)
+	if err != nil {
+		return nil, fmt.Errorf("[%s] 下载全量包失败: %w", packName, err)
+	}
+	defer resp.Body.Close()
+
+	out, err := os.Create(tmpPath)
+	if err != nil {
+		return nil, fmt.Errorf("[%s] 创建本地文件失败: %w", packName, err)
+	}
+	n, err := io.Copy(out, resp.Body)
+	out.Close()
+	if err != nil {
+		return nil, fmt.Errorf("[%s] 下载中断: %w", packName, err)
+	}
+	result.DownloadBytes = n
+
+	// 2. 确保目标目录存在
+	if err := os.MkdirAll(packDir, 0755); err != nil {
+		return nil, fmt.Errorf("[%s] 创建目录失败: %w", packName, err)
+	}
+
+	// 3. 解压到 packDir，自动 strip overrides/ 前缀
+	reader, err := zip.OpenReader(tmpPath)
+	if err != nil {
+		return nil, fmt.Errorf("[%s] 打开全量包失败: %w", packName, err)
+	}
+	defer reader.Close()
+
+	extractCount := 0
+	for _, f := range reader.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		relPath := normalizeFullPath(f.Name) // strip overrides/
+		targetPath := filepath.Join(packDir, relPath)
+		// 路径越界保护
+		if !strings.HasPrefix(filepath.Clean(targetPath), filepath.Clean(packDir)+string(os.PathSeparator)) {
+			logger.Warn("[%s] 跳过路径越界的文件: %s", packName, f.Name)
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("创建目录 %s 失败: %v", relPath, err))
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("打开 %s 失败: %v", f.Name, err))
+			continue
+		}
+		w, err := os.Create(targetPath)
+		if err != nil {
+			rc.Close()
+			result.Errors = append(result.Errors, fmt.Sprintf("写入 %s 失败: %v", relPath, err))
+			continue
+		}
+		_, err = io.Copy(w, rc)
+		w.Close()
+		rc.Close()
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("写入 %s 失败: %v", relPath, err))
+			continue
+		}
+		extractCount++
+		result.Added++
+	}
+	result.Downloaded = extractCount
+
+	// 4. 创建快照
+	if err := u.updatePackSnapshot(packName, update.Version); err != nil {
+		logger.Warn("[%s] 快照更新失败(非致命): %v", packName, err)
+	}
+
+	logger.Info("[%s] 全量更新完成: %d 个文件 -> %s", packName, extractCount, packDir)
+	return result, nil
+}
+
+// normalizeFullPath 处理 modrinth 包路径
+// modrinth.index.json 包根目录的 zip 会用 overrides/ 前缀
+// 解压时需要 strip 这个前缀，使文件直接放到 packDir 根目录
+func normalizeFullPath(zipPath string) string {
+	// 去除路径中的 overrides/ 前缀
+	cleaned := filepath.ToSlash(zipPath)
+	if strings.HasPrefix(cleaned, "overrides/") {
+		cleaned = cleaned[len("overrides/"):]
+	}
+	// modrinth.index.json 也属于包根，不覆盖
+	return cleaned
 }
 
 // ============================================================
