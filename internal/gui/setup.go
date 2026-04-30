@@ -17,7 +17,7 @@ import (
 // runSetupWizard 首次启动时弹出配置向导
 func runSetupWizard(a *App) {
 	var dlg *walk.Dialog
-	var nextPB, cancelPB *walk.PushButton
+	var nextPB, prevPB, cancelPB *walk.PushButton
 	var stepLabel, descLabel *walk.Label
 	var stepIndicatorLabel *walk.Label
 
@@ -56,6 +56,7 @@ func runSetupWizard(a *App) {
 		page0.SetVisible(s == 0)
 		page1.SetVisible(s == 1)
 		page2.SetVisible(s == 2)
+		prevPB.SetVisible(s > 0 && s < 3)
 
 		if s < 3 {
 			stepLabel.SetText(stepTitles[s])
@@ -67,6 +68,25 @@ func runSetupWizard(a *App) {
 			stepIndicatorLabel.SetText("完成")
 		}
 		nextPB.SetEnabled(true)
+	}
+
+	// 手动选择启动器（限定 .exe）
+	pickLauncher := func() {
+		dlg2 := new(walk.FileDialog)
+		dlg2.Title = "选择启动器"
+		dlg2.Filter = "启动器程序 (*.exe)|*.exe|所有文件 (*.*)|*.*"
+		if ok, _ := dlg2.ShowOpen(dlg); ok {
+			launchEdit.SetText(dlg2.FilePath)
+		}
+	}
+
+	// 手动选择 MC 目录
+	pickMCDir := func() {
+		dlg2 := new(walk.FileDialog)
+		dlg2.Title = "选择 Minecraft 根目录"
+		if ok, _ := dlg2.ShowBrowseFolder(dlg); ok {
+			mcEdit.SetText(dlg2.FilePath)
+		}
 	}
 
 	if err := (Dialog{
@@ -105,8 +125,16 @@ func runSetupWizard(a *App) {
 						Layout: HBox{},
 						Children: []Widget{
 							LineEdit{AssignTo: &launchEdit, MinSize: Size{260, 0}},
-							PushButton{AssignTo: &detectLaunchBtn, Text: "🔍 自动检测"},
-							PushButton{AssignTo: &pickLaunchBtn, Text: "📁 手动选择"},
+							PushButton{
+								AssignTo:  &detectLaunchBtn,
+								Text:      "🔍 自动检测",
+								OnClicked: func() { go func() { d := detectLauncher(); dlg.Synchronize(func() { launchEdit.SetText(d) }) }() },
+							},
+							PushButton{
+								AssignTo:  &pickLaunchBtn,
+								Text:      "📁 手动选择",
+								OnClicked: pickLauncher,
+							},
 						},
 					},
 				},
@@ -123,8 +151,16 @@ func runSetupWizard(a *App) {
 						Layout: HBox{},
 						Children: []Widget{
 							LineEdit{AssignTo: &mcEdit, MinSize: Size{260, 0}},
-							PushButton{AssignTo: &detectMCBtn, Text: "🔍 自动检测"},
-							PushButton{AssignTo: &pickMCBtn, Text: "📁 手动选择"},
+							PushButton{
+								AssignTo:  &detectMCBtn,
+								Text:      "🔍 自动检测",
+								OnClicked: func() { go func() { d := detectMinecraftDir(); dlg.Synchronize(func() { mcEdit.SetText(d) }) }() },
+							},
+							PushButton{
+								AssignTo:  &pickMCBtn,
+								Text:      "📁 手动选择",
+								OnClicked: pickMCDir,
+							},
 						},
 					},
 				},
@@ -137,6 +173,18 @@ func runSetupWizard(a *App) {
 			Composite{
 				Layout: HBox{},
 				Children: []Widget{
+					// 上一步（步骤 > 0 且 < 3 时显示）
+					PushButton{
+						AssignTo: &prevPB,
+						Text:     "← 上一步",
+						Visible:  false,
+						OnClicked: func() {
+							if step > 0 && step < 3 {
+								step--
+								showStep(step)
+							}
+						},
+					},
 					HSpacer{},
 					PushButton{
 						AssignTo: &nextPB,
@@ -166,7 +214,13 @@ func runSetupWizard(a *App) {
 
 							case 1:
 								lp := launchEdit.Text()
+								// 启动器路径只需是 .exe 文件即可
 								if lp != "" {
+									ext := filepath.Ext(lp)
+									if ext != ".exe" {
+										walk.MsgBox(dlg, "提示", "启动器程序必须是 .exe 文件，请重新选择", walk.MsgBoxOK)
+										return
+									}
 									if _, err := os.Stat(lp); os.IsNotExist(err) {
 										walk.MsgBox(dlg, "提示", "启动器文件不存在，请重新选择", walk.MsgBoxOK)
 										return
@@ -203,7 +257,6 @@ func runSetupWizard(a *App) {
 								nextPB.SetText("完成")
 
 							default:
-								// 保存
 								a.Lock()
 								a.localCfg.ServerURL = serverURL
 								a.localCfg.Launcher = launcherPath
@@ -217,7 +270,6 @@ func runSetupWizard(a *App) {
 									a.mw.Synchronize(func() { a.refreshUI() })
 								}()
 								dlg.Accept()
-								return
 							}
 						},
 					},
@@ -236,9 +288,7 @@ func runSetupWizard(a *App) {
 		return
 	}
 
-	// 初始显示步骤 0
 	showStep(0)
-
 	dlg.Run()
 }
 
