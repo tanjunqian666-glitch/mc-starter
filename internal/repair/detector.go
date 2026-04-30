@@ -42,6 +42,7 @@ type CrashEvent struct {
 	Type     string    `json:"type"`      // "crash_report" / "hs_err" / "unknown"
 	FilePath string    `json:"file_path"` // 触发崩溃的文件路径
 	Reason   string    `json:"reason"`    // 提取的崩溃原因（短文本）
+	ExitCode int       `json:"exit_code"` // 进程退出码（-1=未知）
 }
 
 // CrashHandler 崩溃回调类型
@@ -397,6 +398,7 @@ func (d *Detector) buildCrashEvent(eventType, fullPath, name string) CrashEvent 
 		Type:     eventType,
 		FilePath: fullPath,
 		Reason:   extractCrashReason(fullPath, eventType),
+		ExitCode: -1, // 文件检测模式，退出码未知
 	}
 	return ev
 }

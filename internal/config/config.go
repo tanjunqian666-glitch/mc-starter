@@ -117,6 +117,40 @@ func (m *Manager) Ping(serverURL string) error {
 	return nil
 }
 
+// PostCrashReport 上传崩溃报告到服务端
+func (m *Manager) PostCrashReport(serverURL, packName string, report model.CrashReport) (*model.CrashReportUploadResponse, error) {
+	baseURL := strings.TrimRight(serverURL, "/")
+	url := fmt.Sprintf("%s/api/v1/packs/%s/crash-report", baseURL, packName)
+
+	body := model.CrashReportUploadRequest{
+		PackName: packName,
+		Report:   report,
+	}
+
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("序列化崩溃报告失败: %w", err)
+	}
+
+	resp, err := m.client.Post(url, "application/json", strings.NewReader(string(data)))
+	if err != nil {
+		return nil, fmt.Errorf("上传崩溃报告失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var uploadResp model.CrashReportUploadResponse
+	if err := json.NewDecoder(resp.Body).Decode(&uploadResp); err != nil {
+		// 即使解析失败，上传本身可能成功
+		return &model.CrashReportUploadResponse{Status: "accepted"}, nil
+	}
+	return &uploadResp, nil
+}
+
 // HTTPGet 返回原始 HTTP 响应（用于外部文件下载）
 func (m *Manager) HTTPGet(url string) (*http.Response, error) {
 	return m.client.Get(url)

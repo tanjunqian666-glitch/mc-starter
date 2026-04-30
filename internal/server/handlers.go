@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gege-tlph/mc-starter/internal/model"
 	"github.com/gege-tlph/mc-starter/internal/pack"
 )
 
@@ -578,6 +579,55 @@ func findLatestDraftInDir(versionsDir string) (string, error) {
 		return "", fmt.Errorf("没有找到 draft 版本")
 	}
 	return latest, nil
+}
+
+// ============================================================
+// 崩溃报告端点
+// ============================================================
+
+// handleCrashReport POST /api/v1/packs/{name}/crash-report
+// 接收客户端上传的崩溃报告，记录到服务端供分析
+func (s *Server) handleCrashReport(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "缺少包名")
+		return
+	}
+
+	var req model.CrashReportUploadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "无效的 JSON 请求体: "+err.Error())
+		return
+	}
+
+	// 记录到服务端日志
+	report := req.Report
+	fmt.Printf("[CRASH] pack=%s, error=%s, exitCode=%d, ts=%s\n",
+		name, report.ErrorMessage, report.ExitCode, report.Timestamp)
+
+	if report.LogTail != "" {
+		logTail := report.LogTail
+		if len(logTail) > 200 {
+			logTail = logTail[:200] + "..."
+		}
+		fmt.Printf("[CRASH] log_tail=%s\n", logTail)
+	}
+
+	// 存储到文件系统（按包名+日期归档）
+	crashDir := filepath.Join(s.store.PackDir(name), "crash-reports")
+	if err := os.MkdirAll(crashDir, 0755); err == nil {
+		filename := fmt.Sprintf("crash-%s.json", time.Now().UTC().Format("20060102T150405Z"))
+		data, _ := json.MarshalIndent(req, "", "  ")
+		os.WriteFile(filepath.Join(crashDir, filename), data, 0644)
+	}
+
+	// 返回响应（含建议工单号）
+	ticket := fmt.Sprintf("CRASH-%s-%s", name, time.Now().UTC().Format("20060102-150405"))
+	writeJSON(w, http.StatusOK, model.CrashReportUploadResponse{
+		Status: "accepted",
+		Ticket: ticket,
+		Advice: "崩溃报告已接收。你可以尝试运行 `starter repair` 自动修复环境。",
+	})
 }
 
 // Because go 1.22 uses the new routing pattern, we need PathValue

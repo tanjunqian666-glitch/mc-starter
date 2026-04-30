@@ -836,6 +836,18 @@ func runRepair(args []string, cfgDir string) {
 		return
 	}
 	printRepairResult(result, primaryName)
+
+	// P2.11: 修复后自动同步（不适用于回滚/列表/loader-only）
+	shouldSync := !*headless && action != repair.ActionRollback && action != repair.ActionListBackups && action != repair.ActionLoaderOnly
+	if shouldSync && len(result.CleanedDirs) > 0 {
+		fmt.Println("\n▶ 修复完成，正在自动同步...")
+		handleUpdateMulti(cfgDir, false, false, targetPack, false)
+	}
+
+	// P2.15: 修复后 PCL2 刷新
+	if action != repair.ActionListBackups && action != repair.ActionRollback {
+		_ = launcher.RefreshPCL2AfterRepair(installPath, targetPack)
+	}
 }
 
 func printRepairResult(result *repair.RepairResult, packName string) {
@@ -1317,6 +1329,28 @@ func runDaemon(args []string, cfgDir string) {
 				if ev, ok := data.(repair.CrashEvent); ok {
 					fmt.Printf("\n[崩溃检测] %s (%s)\n", ev.Reason, ev.Type)
 					fmt.Printf("  文件: %s\n", ev.FilePath)
+
+					// P2.10: 上传崩溃报告到服务端（静默上传，失败不阻断）
+					packName := "main-pack"
+					if localCfg != nil {
+						for name, st := range localCfg.Packs {
+							if st.Enabled {
+								packName = name
+								break
+							}
+						}
+					}
+					go func() {
+						resp, uploadErr := repair.CollectAndUpload(
+							installPath, cfgDir, packName,
+							ev.ExitCode, ev.Reason, nil,
+						)
+						if uploadErr != nil {
+							logger.Warn("崩溃报告上传失败: %v", uploadErr)
+						} else if resp != nil {
+							logger.Info("崩溃报告已上传 (ticket=%s)", resp.Ticket)
+						}
+					}()
 
 					// P2.14: 弹窗询问用户是否打开修复工具
 					launched, err := repair.PromptCrashRepair(ev, daemonCfgArgs)

@@ -69,6 +69,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/packs/{name}", s.requireClientToken(s.handleGetPack))
 	mux.HandleFunc("GET /api/v1/packs/{name}/update", s.requireClientToken(s.handleGetUpdate))
 	mux.HandleFunc("GET /api/v1/packs/{name}/files/{hash}", s.requireClientToken(s.handleFileDownload))
+	mux.HandleFunc("POST /api/v1/packs/{name}/crash-report", s.requireClientToken(s.handleCrashReport))
 
 	// 管理端端点（需认证）
 	mux.HandleFunc("POST /api/v1/admin/packs", s.requireAdmin(s.handleCreatePack))
