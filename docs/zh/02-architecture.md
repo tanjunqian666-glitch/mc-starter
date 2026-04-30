@@ -114,7 +114,7 @@ sync（MC 原版）                     update（整合包）
         → 按 hash 下载文件
         → 自动安装 FabricLoader/FML
         → 更新本地版本号
-    → 点打开启动器 → 拉起 PCL2/HMCL
+    → 点打开启动器 → 拉起 PCL2/HMCL（启动器检测 + 目录感知）
 ```
 
 ## 五、服务端目录结构

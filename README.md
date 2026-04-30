@@ -119,13 +119,11 @@ go build -o mc-starter-server ./cmd/mc-starter-server/
 |--------|--------|
 | P1 Version download + repo + incremental sync | ✅ Done |
 | P2 Fabric install + repair + crash daemon | ✅ Done |
-| P5 PCL2 detection + version finder | ✅ Done |
-| P0x Server REST API | ✅ Coded |
-| GUI (walk) | ✅ Windows tested |
-| P0x Auth polish | ⏳ Pending |
-| P0x Deployment (Dockerfile) | ⏳ Pending |
-| P3 Self-update | 📋 Planned |
-| P6 Channel system | 📋 Planned |
+| P0x Server REST API + auth + deployment | ✅ Done |
+| P3 Self-update (multi-channel + rollback) | ✅ Done |
+| P6 Channel system (multi-channel + optional install) | ✅ Done |
+| GUI (walk native Windows) | ✅ Windows tested |
+| P5 Launcher awareness (detect + dir identify + integration) | 📋 Logic integration pending |
 
 ## License
 
