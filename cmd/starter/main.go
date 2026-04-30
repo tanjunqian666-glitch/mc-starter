@@ -16,6 +16,7 @@ import (
 	"github.com/gege-tlph/mc-starter/internal/model"
 	"github.com/gege-tlph/mc-starter/internal/pack"
 	"github.com/gege-tlph/mc-starter/internal/repair"
+	"github.com/gege-tlph/mc-starter/internal/tray"
 )
 
 var version = "dev"
@@ -1319,6 +1320,13 @@ func runDaemon(args []string, cfgDir string) {
 		}
 	}
 
+	// P2.13: 启动系统托盘（Windows 下自动显示托盘图标）
+	trayMgr := tray.NewManager(cfgDir, installPath)
+	if err := trayMgr.Start(); err != nil {
+		logger.Warn("托盘启动失败(非致命): %v", err)
+	}
+	defer trayMgr.Stop()
+
 	// 创建守护
 	d := repair.NewDaemon(repair.DaemonConfig{
 		MinecraftDir: installPath,
@@ -1329,6 +1337,10 @@ func runDaemon(args []string, cfgDir string) {
 				if ev, ok := data.(repair.CrashEvent); ok {
 					fmt.Printf("\n[崩溃检测] %s (%s)\n", ev.Reason, ev.Type)
 					fmt.Printf("  文件: %s\n", ev.FilePath)
+
+					// P2.13: 托盘通知
+					trayMgr.NotifyCrash(ev)
+					trayMgr.SetStatus("崩溃: " + ev.Reason)
 
 					// P2.10: 上传崩溃报告到服务端（静默上传，失败不阻断）
 					packName := "main-pack"
@@ -1368,9 +1380,11 @@ func runDaemon(args []string, cfgDir string) {
 				}
 			case repair.EventProcessExited:
 				fmt.Println("\n[进程退出] 监控目标已退出")
+				trayMgr.SetStatus("监控目标已退出")
 			case repair.EventMCStarted:
 				if p, ok := data.(repair.WatchedProcess); ok {
 					fmt.Printf("\n[进程启动] %s (PID=%d)\n", p.Name, p.PID)
+					trayMgr.SetStatus("运行中")
 				}
 			}
 		},
@@ -1382,6 +1396,9 @@ func runDaemon(args []string, cfgDir string) {
 		return
 	}
 	defer d.Stop()
+
+	trayMgr.SetStatus("守护中")
+	logger.Info("守护已启动，托盘可用")
 
 	// 等待 Ctrl+C
 	sigCh := make(chan os.Signal, 1)
