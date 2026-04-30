@@ -18,6 +18,8 @@ import (
 func runSetupWizard(a *App) {
 	var dlg *walk.Dialog
 	var nextPB, cancelPB *walk.PushButton
+	var stepLabel, descLabel, indicator *walk.Label
+	var stepIndicatorLabel *walk.Label
 
 	// 当前步骤 (0=API, 1=启动器, 2=MC目录, 3=完成)
 	step := 0
@@ -26,8 +28,17 @@ func runSetupWizard(a *App) {
 	launcherPath := ""
 	mcDir := ""
 
-	// 步骤描述
-	stepLabels := []string{
+	// 各步骤输入控件
+	var apiEdit *walk.LineEdit
+	var launchEdit *walk.LineEdit
+	var mcEdit *walk.LineEdit
+	var page0, page1, page2 *walk.Composite
+
+	// 自动检测 & 手动选择
+	var detectLaunchBtn, pickLaunchBtn, detectMCBtn, pickMCBtn *walk.PushButton
+
+	// 步骤标题
+	stepTitles := []string{
 		"第 1 步: 填写服务器 API 地址",
 		"第 2 步: 设置启动器路径",
 		"第 3 步: 设置 Minecraft 根目录",
@@ -40,49 +51,22 @@ func runSetupWizard(a *App) {
 		"所有配置已完成，点击完成即可开始使用。",
 	}
 
-	var stepLabel *walk.Label
-	var descLabel *walk.Label
-	var apiEdit *walk.LineEdit
-	var launchEdit *walk.LineEdit
-	var mcEdit *walk.LineEdit
-	var detectLaunchBtn *walk.PushButton
-	var pickLaunchBtn *walk.PushButton
-	var detectMCBtn *walk.PushButton
-	var pickMCBtn *walk.PushButton
+	// 显示指定步骤，隐藏其他
+	showStep := func(s int) {
+		page0.SetVisible(s == 0)
+		page1.SetVisible(s == 1)
+		page2.SetVisible(s == 2)
 
-	// 各步骤页面的 Widget 列表（动态显示/隐藏）
-	pageWidgets := make([][]Widget, 3)
-
-	// step 0: API
-	pageWidgets[0] = []Widget{
-		Label{Text: "服务器 API 地址:"},
-		LineEdit{AssignTo: &apiEdit, MinSize: Size{360, 0}},
-	}
-
-	// step 1: 启动器
-	pageWidgets[1] = []Widget{
-		Label{Text: "启动器路径:"},
-		Composite{
-			Layout: HBox{},
-			Children: []Widget{
-				LineEdit{AssignTo: &launchEdit, MinSize: Size{260, 0}},
-				PushButton{AssignTo: &detectLaunchBtn, Text: "🔍 自动检测"},
-				PushButton{AssignTo: &pickLaunchBtn, Text: "📁 手动选择"},
-			},
-		},
-	}
-
-	// step 2: MC 目录
-	pageWidgets[2] = []Widget{
-		Label{Text: "Minecraft 根目录:"},
-		Composite{
-			Layout: HBox{},
-			Children: []Widget{
-				LineEdit{AssignTo: &mcEdit, MinSize: Size{260, 0}},
-				PushButton{AssignTo: &detectMCBtn, Text: "🔍 自动检测"},
-				PushButton{AssignTo: &pickMCBtn, Text: "📁 手动选择"},
-			},
-		},
+		if s < 3 {
+			stepLabel.SetText(stepTitles[s])
+			descLabel.SetText(stepDesc[s])
+			stepIndicatorLabel.SetText(fmt.Sprintf("%d / 3", s+1))
+		} else {
+			stepLabel.SetText(stepTitles[3])
+			descLabel.SetText(stepDesc[3])
+			stepIndicatorLabel.SetText("完成")
+		}
+		nextPB.SetEnabled(true)
 	}
 
 	if err := (Dialog{
@@ -94,30 +78,60 @@ func runSetupWizard(a *App) {
 		DefaultButton: &nextPB,
 		CancelButton:  &cancelPB,
 		Children: []Widget{
-			// 标题
-			Label{AssignTo: &stepLabel, Text: stepLabels[0], Font: Font{PointSize: 10, Bold: true}},
+			Label{AssignTo: &stepLabel, Text: stepTitles[0], Font: Font{PointSize: 10, Bold: true}},
 			VSpacer{Size: 4},
-			// 描述
 			Label{AssignTo: &descLabel, Text: stepDesc[0], Font: Font{PointSize: 9}},
 			VSpacer{Size: 8},
 
-			// 步骤页面容器
+			// Step 0: API
 			Composite{
-				Layout: VBox{},
+				AssignTo: &page0,
+				Layout:   VBox{},
+				Visible:  true,
 				Children: []Widget{
-					// Step 0: API
-					Composite{Layout: VBox{}, Children: pageWidgets[0]},
-					// Step 1: 启动器
-					Composite{Layout: VBox{}, Children: pageWidgets[1]},
-					// Step 2: MC 目录
-					Composite{Layout: VBox{}, Children: pageWidgets[2]},
+					Label{Text: "服务器 API 地址:"},
+					LineEdit{AssignTo: &apiEdit, MinSize: Size{360, 0}},
+				},
+			},
+
+			// Step 1: 启动器
+			Composite{
+				AssignTo: &page1,
+				Layout:   VBox{},
+				Visible:  false,
+				Children: []Widget{
+					Label{Text: "启动器路径:"},
+					Composite{
+						Layout: HBox{},
+						Children: []Widget{
+							LineEdit{AssignTo: &launchEdit, MinSize: Size{260, 0}},
+							PushButton{AssignTo: &detectLaunchBtn, Text: "🔍 自动检测"},
+							PushButton{AssignTo: &pickLaunchBtn, Text: "📁 手动选择"},
+						},
+					},
+				},
+			},
+
+			// Step 2: MC 目录
+			Composite{
+				AssignTo: &page2,
+				Layout:   VBox{},
+				Visible:  false,
+				Children: []Widget{
+					Label{Text: "Minecraft 根目录:"},
+					Composite{
+						Layout: HBox{},
+						Children: []Widget{
+							LineEdit{AssignTo: &mcEdit, MinSize: Size{260, 0}},
+							PushButton{AssignTo: &detectMCBtn, Text: "🔍 自动检测"},
+							PushButton{AssignTo: &pickMCBtn, Text: "📁 手动选择"},
+						},
+					},
 				},
 			},
 
 			VSpacer{Size: 4},
-
-			// step 指示器
-			Label{Text: "1 / 3", Font: Font{PointSize: 9}},
+			Label{AssignTo: &stepIndicatorLabel, Text: "1 / 3", Font: Font{PointSize: 9}},
 
 			// 按钮行
 			Composite{
@@ -130,54 +144,66 @@ func runSetupWizard(a *App) {
 						OnClicked: func() {
 							switch step {
 							case 0:
-								// 验证 API
-								if apiEdit.Text() == "" {
+								url := apiEdit.Text()
+								if url == "" {
 									walk.MsgBox(dlg, "提示", "请输入服务器 API 地址", walk.MsgBoxOK)
 									return
 								}
-								serverURL = apiEdit.Text()
+								serverURL = url
 								step = 1
+								showStep(1)
+
+								// 自动检测启动器
+								go func() {
+									detected := detectLauncher()
+									if detected != "" {
+										dlg.Synchronize(func() {
+											launchEdit.SetText(detected)
+											launcherPath = detected
+										})
+									}
+								}()
 
 							case 1:
-								launcherPath = launchEdit.Text()
+								lp := launchEdit.Text()
+								if lp != "" {
+									if _, err := os.Stat(lp); os.IsNotExist(err) {
+										walk.MsgBox(dlg, "提示", "启动器文件不存在，请重新选择", walk.MsgBoxOK)
+										return
+									}
+								}
+								launcherPath = lp
 								step = 2
+								showStep(2)
+
+								// 自动检测 MC 目录
+								go func() {
+									detected := detectMinecraftDir()
+									if detected != "" {
+										dlg.Synchronize(func() {
+											mcEdit.SetText(detected)
+											mcDir = detected
+										})
+									}
+								}()
 
 							case 2:
-								mcDir = mcEdit.Text()
+								md := mcEdit.Text()
+								if md == "" {
+									walk.MsgBox(dlg, "提示", "请输入 Minecraft 根目录", walk.MsgBoxOK)
+									return
+								}
+								if _, err := os.Stat(md); os.IsNotExist(err) {
+									walk.MsgBox(dlg, "提示", "目录不存在，请重新选择", walk.MsgBoxOK)
+									return
+								}
+								mcDir = md
 								step = 3
+								showStep(3)
+								nextPB.SetText("完成")
 
 							default:
-								return
-							}
-
-							if step < 3 {
-								stepLabel.SetText(stepLabels[step])
-								descLabel.SetText(stepDesc[step])
-								// 自动执行检测
-								switch step {
-								case 1:
-									go func() {
-										detected := detectLauncher()
-										if detected != "" {
-											dlg.Synchronize(func() {
-												launchEdit.SetText(detected)
-												launcherPath = detected
-											})
-										}
-									}()
-								case 2:
-									go func() {
-										detected := detectMinecraftDir()
-										if detected != "" {
-											dlg.Synchronize(func() {
-												mcEdit.SetText(detected)
-												mcDir = detected
-											})
-										}
-									}()
-								}
-							} else {
-								// 完成 — 保存配置
+								// 保存
 								a.Lock()
 								a.localCfg.ServerURL = serverURL
 								a.localCfg.Launcher = launcherPath
@@ -185,16 +211,13 @@ func runSetupWizard(a *App) {
 								a.Unlock()
 								a.cfg.SaveLocal(a.localCfg)
 
-								// 拉取服务端包列表
 								go func() {
 									a.refreshServerPacks()
 									a.determineInitialPack()
-									a.mw.Synchronize(func() {
-										a.refreshUI()
-									})
+									a.mw.Synchronize(func() { a.refreshUI() })
 								}()
-
 								dlg.Accept()
+								return
 							}
 						},
 					},
@@ -202,7 +225,6 @@ func runSetupWizard(a *App) {
 						AssignTo: &cancelPB,
 						Text:     "取消",
 						OnClicked: func() {
-							// 取消向导也允许使用（有些配置可能已保存）
 							dlg.Cancel()
 						},
 					},
@@ -214,16 +236,8 @@ func runSetupWizard(a *App) {
 		return
 	}
 
-	// 首次打开自动触发启动器检测
-	go func() {
-		detected := detectLauncher()
-		if detected != "" {
-			dlg.Synchronize(func() {
-				launchEdit.SetText(detected)
-				launcherPath = detected
-			})
-		}
-	}()
+	// 初始显示步骤 0
+	showStep(0)
 
 	dlg.Run()
 }
