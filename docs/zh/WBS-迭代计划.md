@@ -1,6 +1,6 @@
 # MC 版本更新器 — WBS 工作分解 + 迭代计划
 
-> **项目状态**：P1 全部完成 ✅ | P2 **全部完成 ✅** | P5 全部完成 ✅ | **P0x 全部完成 ✅** | GUI 框架完成（walk 替换 TUI + Windows 端完整测试）✅ | **下一阶段：P5 启动器兼容 / P6 频道体系 / P3 自更新**
+> **项目状态**：P1 全部完成 ✅ | P2 **全部完成 ✅** | P3 **全部完成 ✅** | P5 全部完成 ✅ | **P0x 全部完成 ✅** | GUI 框架完成（walk 替换 TUI + Windows 端完整测试）✅ | **下一阶段：P6 频道体系**
 > **外部参考**见文末 §七（MCUpdater）
 
 ---
@@ -68,6 +68,8 @@
 | 版本查找器 | `internal/launcher/finder.go` | P5.1 (已超前写) |
 | GUI 界面 (walk) | `internal/gui/` | P2.12/P2.14 (替代) |
 | 服务端包管理 | `internal/pack/pack.go` | P1.12-P1.14 |
+| 自更新 | `internal/launcher/self_update.go` | P3.1-P3.6 |
+| 自更新测试 | `internal/launcher/self_update_test.go` | P3 全部 |
 | 配置读写 | `internal/config/config.go` | P0.3 |
 | 镜像选择 | `internal/mirror/mirror.go` | P0.4 |
 | HTTP 下载器 | `internal/downloader/downloader.go` | P0.5 |
@@ -171,16 +173,19 @@ P3 自更新 (2d)          ◄───────────┘
 | P2.14 | 崩溃弹窗询问 | 2h | ✅ `internal/repair/prompt.go` + `prompt_windows.go` — 崩溃后 MessageBoxW 询问是否打开修复工具 |
 | P2.15 | 修复后 PCL2 刷新 | 1h | ✅ `internal/launcher/pcl_refresh.go` — 写 launcher_profiles.json + 刷新 PCL.ini 缓存 |
 
-### P3：自更新 — 📋 待启动
+### P3：自更新 — ✅ 全部完成
 
-| ID | 任务 | 预估 |
-|----|------|------|
-| P3.1 | 更新检查+semver 比较 | 3h |
-| P3.2 | 下载+hash+签名校验 | 3h |
-| P3.3 | 替换自身+bat 脚本 | 4h |
-| P3.4 | 回滚（10s 检测） | 3h |
-| P3.5 | 多通道 stable/beta/dev | 2h |
-| P3.6 | 交互通知 | 2h |
+| ID | 任务 | 预估 | 产出物 |
+|----|------|------|--------|
+| P3.1 | 更新检查+semver 比较+更新状态文件 | 3h | ✅ `self_update.go` — `CheckUpdate` + `compareVersions`（补零对齐+strip metadata）|
+| P3.2 | 下载+hash+签名校验 | 3h | ✅ `self_update.go` — `DownloadUpdate` + `verifySHA256File` |
+| P3.3 | 替换自身+Windows bat 脚本 | 4h | ✅ `self_update.go` — `applyUpdateWindows`（bat 脚本等待进程退出→copy→del→start）|
+| P3.4 | 回滚（10s 启动健康检测+手动回滚+历史） | 3h | ✅ `CheckStartupHealth` + `MarkStartupOK` + `Rollback` + `GetUpdateHistory` |
+| P3.5 | 多通道 stable/beta/dev+通道切换校验 | 2h | ✅ `SetChannelStr` + `ValidateChannelSwitch` |
+| P3.6 | 交互通知 | 2h | ✅ `handleSelfUpdateCheck` 后台下载+启动提示 |
+| | **集成**: `starter self-update check\|apply\|rollback\|history\|channel` CLI 入口 | | ✅ `cmd/starter/main.go` |
+| | **集成**: 启动健康检测（`main`入口）+ run 命令 `MarkStartupOK` | | ✅ `cmd/starter/main.go` |
+| | **测试**: 14 个单元测试 | | ✅ `self_update_test.go` |
 
 ### P5：启动器兼容 — 📋 待启动
 
@@ -252,6 +257,14 @@ P2.10-P2.15 修复细化    → 12h   ✅ 全部完成
 里程碑 M5：v1.0 功能完整
 ```
 
+### ✅ Sprint 7（P3 自更新 — 全部完成）
+
+```
+P3.1-P3.6 自更新全套   → 17h   ✅
+─────────────────────────────
+里程碑 M6：starter self-update 可用
+```
+
 ---
 
 ## 五、关键路径
@@ -259,9 +272,9 @@ P2.10-P2.15 修复细化    → 12h   ✅ 全部完成
 ```
 P0.1 → P0.2 → P0.3 ──────────────── 关键路径（已走完）
                     ↘                        ↗
-                     P0.4 → P0.5 → P1.x → P0x.x ← 当前
+                     P0.4 → P0.5 → P1.x → P0x.x
                                            ↓
-                                    P2.x → P5.x → P6.x → P3.x
+                                    P2.x → P5.x → P3.x → P6.x ← 当前
 ```
 
 ## 六、服务端 API 设计草案（P0x 先行）
