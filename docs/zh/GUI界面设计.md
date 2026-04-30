@@ -1,6 +1,6 @@
 # GUI 界面设计
 
-> 2026-04-30 · 替换原 bubbletea TUI
+> 2026-04-30 · 替换原 bubbletea TUI · v2（向导、DPI、多步验证）
 
 ---
 
@@ -12,6 +12,7 @@ mc-starter 的 GUI 定位是 **小工具**，不是大应用：
 - **双击即用**：自动检测配置，无配置则弹出向导
 - **隐藏复杂度**：用户不需要知道 Fabric/Forge/内存/备份/缓存
 - **Windows 原生**：基于 lxn/walk，单 exe 发布
+- **DPI 感知**：高分辨率屏幕自动缩放字体、控件不模糊
 
 ## 主窗口
 
@@ -76,14 +77,19 @@ mc-starter 的 GUI 定位是 **小工具**，不是大应用：
 
 ## 首次配置向导
 
-首次双击弹出 3 步向导：
+首次双击弹出 3 步向导，**每次只显示当前步骤**，支持上一步回退：
 
-| 步骤 | 内容 | 自动行为 |
-|------|------|---------|
-| 1 | 填写服务器 API 地址 | 验证非空 |
-| 2 | 启动器路径 | 自动搜索 PCL2/HMCL，🔍 重新检测，📁 手动选文件 |
-| 3 | Minecraft 根目录 | 自动搜索常见位置，🔍 重新检测，📁 手动选目录 |
-| 完成 | 保存配置 + 拉取服务端版本列表 | 回到主窗口 |
+| 步骤 | 内容 | 验证 | 自动行为 |
+|------|------|------|---------|
+| 1 | 填写服务器 API 地址 | 非空校验 | — |
+| 2 | 启动器路径 | 必须是 .exe 文件（可跳过） | 自动搜索 PCL2/HMCL，🔍 重新检测，📁 手动选文件 |
+| 3 | Minecraft 根目录 | 目录必须存在 | 自动搜索常见位置，🔍 重新检测，📁 手动选目录 |
+| 完成 | 保存配置 + 拉取服务端版本列表 | — | 回到主窗口 |
+
+**按钮行为**：
+- "下一步" → 验证当前步骤 → 切到下一步
+- "← 上一步" → 返回上一步修改（步骤 1/2 时显示）
+- "取消" → 关闭向导，不保存
 
 ## 同步过程
 
@@ -96,12 +102,23 @@ mc-starter 的 GUI 定位是 **小工具**，不是大应用：
 
 **框架**：`github.com/lxn/walk` — Go 原生 Windows GUI 库
 
+**编译要求**（Windows 构建）：
+- CGO_ENABLED=1
+- MinGW-w64（gcc）
+- `rsrc` 工具生成 syso（`go install github.com/akavel/rsrc@latest`）
+- 必须嵌入 Common Controls 6.0 manifest（否则 TTM_ADDTOOL panic）
+
+**DPI 感知**：通过 `shcore.dll.SetProcessDpiAwareness(2)` 声明 PROCESS_PER_MONITOR_DPI_AWARE
+
 **文件结构**：
 ```
 internal/gui/
-├── app.go       ← 主窗口 + 布局 + 操作逻辑
-├── settings.go  ← 设置弹窗
-└── setup.go     ← 首次配置向导 + 自动检测工具函数
+├── app.go              ← 主窗口 + 布局 + 操作逻辑
+├── settings.go         ← 设置弹窗
+├── setup.go            ← 首次配置向导 + 自动检测工具函数
+├── dpi_windows.go      ← DPI 感知（Windows init）
+├── gui.manifest        ← Common Controls 6.0 manifest
+└── gui_windows_amd64.syso  ← rsrc 生成的资源文件
 ```
 
 **依赖变化**：从 bubbletea（~15 依赖）→ walk（~5 依赖），exe 体积缩小约 200KB

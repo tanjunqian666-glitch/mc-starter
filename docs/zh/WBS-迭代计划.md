@@ -1,6 +1,6 @@
 # MC 版本更新器 — WBS 工作分解 + 迭代计划
 
-> **项目状态**：P1 全部完成 ✅ | P2 全部完成 ✅ | P5 全部完成 ✅ | **P0x 文档/代码适配完成 ✅ | GUI 框架完成（walk 替换 TUI）✅ | 下一步：P0x 服务端骨架编码**
+> **项目状态**：P1 全部完成 ✅ | P2 全部完成 ✅ | P5 全部完成 ✅ | P0x 文档/代码适配完成 ✅ | GUI 框架完成（walk 替换 TUI + Windows 端完整测试）✅ | 下一步：P0x 服务端骨架编码
 > **外部参考**见文末 §七（MCUpdater）
 
 ---
@@ -527,3 +527,24 @@ starter update --all             # 更新所有已启用的包
 ## 十、P1+P2 阶段经验总结
 
 见 `代码自查与质量规范.md` 和 `详细开发流程.md`。
+
+---
+
+## 十一、Windows GUI 测试记录（2026-04-30）
+
+| 项目 | 结果 |
+|------|------|
+| 环境 | Windows 11 LTSC 2024, VM 局域网 192.168.139.132, C 盘 34GB 空余 |
+| 依赖 | Go 1.26.2, Git, MinGW-w64 (gcc), rsrc |
+| 单元测试 | 39 tests 全部 PASS |
+| CLI 构建 | `starter.exe` 10.75MB ✅ |
+| GUI 构建 | `starter-gui.exe` 10.75MB (`-H windowsgui`, CGO) ✅ |
+| GUI 启动 | 成功显示窗口，无崩溃 ✅ |
+| 向导流程 | 三步分开，上一步/下一步，非空/exe 验证 ✅ |
+| 设置弹窗 | 启动器文件选择 + MC 目录选择 ✅ |
+| 主界面 | 版本下拉/打开启动器/更新按钮/状态栏 ✅ |
+
+### 已知限制
+- PowerShell 远程传命令引号嵌套困难 → 改用 scp .ps1 + ssh 执行模式
+- lxn/walk 无 SetDPIAware → 需手动调用 shcore.dll API
+- rsrc 必须在每次修改 .manifest 后重新生成 .syso

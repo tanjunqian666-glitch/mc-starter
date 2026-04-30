@@ -13,6 +13,32 @@
 - Git
 - GNU Make（可选）
 
+### 1.2 Windows 构建额外要求
+
+GUI 版本（starter-gui.exe）使用 `github.com/lxn/walk`，需要：
+
+1. **MinGW-w64**（提供 gcc/CGO 编译）
+   ```powershell
+   choco install mingw
+   ```
+2. **rsrc**（生成 Windows 资源文件）
+   ```powershell
+   go install github.com/akavel/rsrc@latest
+   ```
+3. **编译步骤**
+   ```powershell
+   # 1. 生成 syso（manifest 嵌入）
+   rsrc -manifest internal\gui\gui.manifest -o internal\gui\gui_windows_amd64.syso -arch amd64
+
+   # 2. 编译 CLI
+   go build -ldflags="-s -w" -o build\starter.exe .\cmd\starter\
+
+   # 3. 编译 GUI（无控制台窗口）
+   $env:CGO_ENABLED = "1"
+   $env:CC = "gcc"
+   go build -ldflags="-s -w -H windowsgui" -o build\starter-gui.exe .\cmd\starter\
+   ```
+
 ### 1.2 构建命令
 
 ```bash
