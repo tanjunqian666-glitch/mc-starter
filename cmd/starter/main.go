@@ -59,6 +59,19 @@ func parseGlobalFlags() (cfgDir string, verbose, headless, dryRun bool, remainin
 func main() {
 	cfgDir, verbose, headless, dryRun, args := parseGlobalFlags()
 
+	// P3 自更新: 启动健康检查（新版本首次启动后 10s 健康检测）
+	{
+		mg := config.New(cfgDir)
+		localCfg, loadErr := mg.LoadLocal()
+		serverURL := ""
+		if loadErr == nil {
+			serverURL = localCfg.ServerURL
+		}
+		localDir := filepath.Join(cfgDir, ".local")
+		updater := launcher.NewSelfUpdater(localDir, version, serverURL)
+		updater.CheckStartupHealth()
+	}
+
 	if len(args) < 2 {
 		// 无参数: 双击场景 → 启动 GUI
 		if err := gui.Run(cfgDir); err != nil {
@@ -109,6 +122,8 @@ func main() {
 		runDaemon(subArgs, cfgDir)
 	case "version":
 		fmt.Printf("mc-starter %s\n", version)
+	case "self-update":
+		handleSelfUpdate(subArgs, cfgDir)
 	case "help", "--help", "-h":
 		printUsage()
 	default:
@@ -144,6 +159,12 @@ mc-starter — Windows 版 Minecraft 版本管理 & 整合包更新器
   starter pcl      操作 PCL2
     detect         检测 PCL2.exe 位置
     path <path>    设置 PCL2 路径
+  starter self-update  自更新管理
+    check              检查更新
+    apply              应用已下载的更新
+    rollback           回滚到上一个版本
+    history            查看更新历史
+    channel <name>     切换更新通道 (stable/beta/dev)
   starter version  显示版本信息
   starter help     显示此帮助
 
@@ -241,6 +262,12 @@ func run(cfgDir string, verbose bool, headless bool, dryRun bool) {
 	logger.Info("run: 同步完成, 等待启动器拉起功能")
 	fmt.Println("run: 同步完成，启动器拉起功能开发中")
 	logger.Info("run: 全自动模式完成")
+
+	// P3 自更新: 标记新版本启动成功
+	mg := config.New(cfgDir)
+	localCfg, _ := mg.LoadLocal()
+	updater2 := launcher.NewSelfUpdater(filepath.Join(cfgDir, ".local"), version, localCfg.ServerURL)
+	updater2.MarkStartupOK()
 }
 
 func initialize(cfgDir string) {
@@ -1716,6 +1743,144 @@ func handlePackList(args []string) {
 	for _, v := range drafts {
 		fmt.Printf("  [draft]     %s\n", v)
 	}
+}
+
+// ==== 自更新 (P3) ====
+
+// handleSelfUpdate 处理 self-update 子命令
+func handleSelfUpdate(args []string, cfgDir string) {
+	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+		fmt.Println(strings.TrimSpace(`
+用法:
+  starter self-update check             检查更新
+  starter self-update apply             应用已下载的更新并重启
+  starter self-update rollback          回滚到上一个版本
+  starter self-update history           查看更新历史
+  starter self-update channel <name>    切换更新通道 (stable, beta, dev)
+		`))
+		return
+	}
+
+	mg := config.New(cfgDir)
+	localCfg, err := mg.LoadLocal()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取配置失败: %v\n", err)
+		return
+	}
+
+	localDir := filepath.Join(cfgDir, ".local")
+	serverURL := localCfg.ServerURL
+	if serverURL == "" {
+		fmt.Fprintf(os.Stderr, "local.json 中缺少 server_url，请先配置\n")
+		return
+	}
+
+	updater := launcher.NewSelfUpdater(localDir, version, serverURL)
+
+	switch args[0] {
+	case "check":
+		handleSelfUpdateCheck(updater)
+	case "apply":
+		handleSelfUpdateApply(updater)
+	case "rollback":
+		handleSelfUpdateRollback(updater)
+	case "history":
+		handleSelfUpdateHistory(updater)
+	case "channel":
+		handleSelfUpdateChannel(args[1:], updater)
+	default:
+		fmt.Printf("self-update: unknown subcommand %s\n", args[0])
+		fmt.Println("可用: check, apply, rollback, history, channel")
+	}
+}
+
+func handleSelfUpdateCheck(updater *launcher.SelfUpdater) {
+	meta, available, err := updater.CheckUpdate()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "检查更新失败: %v\n", err)
+		return
+	}
+
+	fmt.Printf("当前版本: %s\n", updater.Version)
+	if !available {
+		fmt.Println("已是最新版本 ✓")
+		return
+	}
+
+	fmt.Println("\n📦 发现新版本:")
+	fmt.Printf("  版本: %s (%s)\n", meta.Version, meta.Channel)
+	fmt.Printf("  发布: %s\n", meta.ReleaseDate)
+	if len(meta.Changelog) > 0 {
+		fmt.Println("  更新内容:")
+		for _, line := range meta.Changelog {
+			fmt.Printf("    • %s\n", line)
+		}
+	}
+
+	if updater.IsCriticalUpdate(meta) {
+		fmt.Println("\n⚠ 当前版本过旧，需要强制更新")
+	}
+
+	fmt.Println("\n▶ 正在下载更新...")
+	if err := updater.DownloadUpdate(meta); err != nil {
+		fmt.Fprintf(os.Stderr, "下载更新失败: %v\n", err)
+		return
+	}
+	fmt.Println("✅ 更新已下载，运行 `starter self-update apply` 应用更新")
+}
+
+func handleSelfUpdateApply(updater *launcher.SelfUpdater) {
+	result, err := updater.ApplyUpdate()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "应用更新失败: %v\n", err)
+		return
+	}
+	_ = result
+}
+
+func handleSelfUpdateRollback(updater *launcher.SelfUpdater) {
+	if err := updater.Rollback(); err != nil {
+		fmt.Fprintf(os.Stderr, "回滚失败: %v\n", err)
+		return
+	}
+	fmt.Println("已回滚到上一个版本，请重启 starter")
+
+	if runtime.GOOS != "windows" {
+		exe, _ := os.Executable()
+		if _, statErr := os.Stat(exe); statErr == nil {
+			fmt.Println("正在重启...")
+			cmd := exec.Command(exe, os.Args[1:]...)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Start()
+			os.Exit(0)
+		}
+	}
+}
+
+func handleSelfUpdateHistory(updater *launcher.SelfUpdater) {
+	entries, err := updater.GetUpdateHistory()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取更新历史失败: %v\n", err)
+		return
+	}
+	fmt.Println(launcher.FormatUpdateHistory(entries))
+}
+
+func handleSelfUpdateChannel(args []string, updater *launcher.SelfUpdater) {
+	if len(args) == 0 {
+		fmt.Printf("当前通道: %s\n", updater.Channel)
+		fmt.Println("可用通道: stable, beta, dev")
+		return
+	}
+
+	ch := args[0]
+	if err := updater.SetChannelStr(ch); err != nil {
+		fmt.Fprintf(os.Stderr, "切换通道失败: %v\n", err)
+		return
+	}
+	fmt.Printf("已切换到通道: %s\n", ch)
+	fmt.Println("下次检查更新时将使用新通道")
 }
 
 func minInt(a, b int) int {
