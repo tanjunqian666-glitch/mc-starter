@@ -1,6 +1,6 @@
 # MC 版本更新器 — WBS 工作分解 + 迭代计划
 
-> **项目状态**：P1 全部完成 ✅ | P2 全部完成 ✅ | P5 全部完成 ✅ | **当前阶段：P0.x 服务端**
+> **项目状态**：P1 全部完成 ✅ | P2 全部完成 ✅ | P5 全部完成 ✅ | **P0x 文档/代码适配完成 ✅ | 下一步：P0x 服务端骨架编码**
 > **外部参考**见文末 §七（MCUpdater）
 
 ---
@@ -115,13 +115,13 @@ P3 自更新 (2d)          ◄───────────┘
 
 | ID | 任务 | 预估 | 产出物 |
 |----|------|------|--------|
-| P0x.1 | server 骨架：go.mod + main.go + 启动/停止 | 2h | `cmd/mc-starter-server/main.go` |
-| P0x.2 | 仓库目录结构：多包 + 版本目录设计 | 2h | 设计文档 + `internal/server/repo.go` |
-| P0x.3 | REST API v1：客户端端点（版本查询/增量/下载） | 4h | `internal/server/api_client.go` |
-| P0x.4 | REST API v1：管理端点（创建包/导入/publish/列表） | 4h | `internal/server/api_admin.go` |
-| P0x.5 | 客户端 SDK：starter update 对接 server API | 3h | `internal/launcher/update.go` 改造 |
-| P0x.6 | 认证：简单 token 认证 + 管理端鉴权 | 2h | `internal/server/auth.go` |
-| P0x.7 | 部署：配置文件 + Dockerfile + 默认配置 | 2h | `server-config.yml` + `Dockerfile` |
+| P0x.1 | server 骨架：go.mod + main.go + 启动/停止 | 2h | ⏳ `cmd/mc-starter-server/main.go` |
+| P0x.2 | 仓库目录结构：多包 + 版本目录设计 | 2h | ✅ 设计完成 (`服务端架构与部署.md`) |
+| P0x.3 | REST API v1：客户端端点（版本查询/增量/下载） | 4h | ✅ 设计完成 (`API接口文档.md`) |
+| P0x.4 | REST API v1：管理端点（创建包/导入/publish/列表） | 4h | ✅ 设计完成 (`API接口文档.md`) |
+| P0x.5 | 客户端 SDK：starter update 对接 server API | 3h | ✅ `update.go` 已适配 |
+| P0x.6 | 认证：简单 token 认证 + 管理端鉴权 | 2h | ⏳ 待编码 |
+| P0x.7 | 部署：配置文件 + Dockerfile + 默认配置 | 2h | ⏳ 待编码 |
 
 > **现状**：`internal/pack/pack.go` 已实现 zip 导入/diff/publish 逻辑，P0x 负责将其包装为 HTTP API + 多包索引。
 > `internal/launcher/update.go` 已实现客户端增量更新逻辑，P0x 负责将 server.json 拉取改为 API 调用。
@@ -219,16 +219,16 @@ P2.9 静默守护           → 4h
 里程碑 M3：./starter sync + repair 可用
 ```
 
-### 📋 Sprint 5（当前 — 服务端骨架）
+### 📋 Sprint 5（服务端骨架 — 文档/代码适配 ✅，编码待启动）
 
 ```
-P0x.1 server 骨架       → 2h
-P0x.2 仓库目录结构      → 2h
-P0x.3 客户端 API        → 4h
-P0x.4 管理 API          → 4h
-P0x.5 客户端 SDK 改造   → 3h
-P0x.6 认证              → 2h
-P0x.7 部署配置文件      → 2h
+P0x.1 server 骨架       → 2h    ⏳
+P0x.2 仓库目录结构      → 2h    ✅ 设计完成 (服务端架构与部署.md)
+P0x.3 客户端 API        → 4h    ✅ API 文档完成 (API接口文档.md)
+P0x.4 管理 API          → 4h    ✅ API 文档完成
+P0x.5 客户端 SDK 改造   → 3h    ✅ update.go 已适配 HTTP API
+P0x.6 认证              → 2h    ⏳
+P0x.7 部署配置文件      → 2h    ⏳
 ─────────────────────────────
 里程碑 M4：mc-starter-server 可用 +
   starter 客户端通过 API 拿增量更新
