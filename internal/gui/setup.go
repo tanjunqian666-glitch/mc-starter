@@ -18,7 +18,7 @@ import (
 func runSetupWizard(a *App) {
 	var dlg *walk.Dialog
 	var nextPB, cancelPB *walk.PushButton
-	var stepLabel, descLabel, indicator *walk.Label
+	var stepLabel, descLabel *walk.Label
 	var stepIndicatorLabel *walk.Label
 
 	// 当前步骤 (0=API, 1=启动器, 2=MC目录, 3=完成)
