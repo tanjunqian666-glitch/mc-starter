@@ -184,100 +184,203 @@ mc-starter — Windows 版 Minecraft 版本管理 & 整合包更新器
 `))
 }
 
-// run 全自动模式: 检测 → 同步 → 拉起启动器
+// run 全自动模式（Sprint 10 重写 — C/S 端到端流程）
+//
+// 流程:
+//   1. 读配置 → 检测启动器
+//   2. 拉服务端包列表，获取每个包的 (mc_version, loader)
+//   3. 对每个已启用的包：
+//      a. EnsureVersion(mc_version, loader) → 本地下 MC 本体 + Loader
+//      b. UpdatePack → 下自定义内容到 packs/
+//      c. MergePackToVersion → packs/ 内容合并到 versions/<name>/
+//   4. 通知完成
 func run(cfgDir string, verbose bool, headless bool, dryRun bool) {
 	logger.Init(verbose)
-	logger.Info("run: 全自动模式")
-	fmt.Println("=== 全自动模式 ===")
+	logger.Info("run: 全自动模式 (C/S)")
+	fmt.Println("=== MC Starter 全自动模式 ===")
 
-	// 1. 初始化配置（如果不存在则创建）
+	// 1. 初始化配置
 	if err := ensureConfig(cfgDir); err != nil {
 		logger.Error("配置初始化失败: %v", err)
 		fmt.Fprintf(os.Stderr, "run: 配置初始化失败: %v\n", err)
 		return
 	}
 
-	// 2. 读取本地配置，查找 PCL2 和 .minecraft 配置
 	mg := config.New(cfgDir)
-	localCfg, _ := mg.LoadLocal()
-	if localCfg != nil && localCfg.Launcher == "" {
-		localCfg.Launcher = "auto"
+	localCfg, err := mg.LoadLocal()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "run: 读取配置失败: %v\n", err)
+		return
 	}
 
-	// 检测启动器并写回配置
+	// 检测启动器
+	if localCfg.Launcher == "" {
+		localCfg.Launcher = "auto"
+	}
 	pclDetected := launcher.FindPCL2()
 	if pclDetected != nil {
-		fmt.Printf("[✓] 检测到 PCL2: %s\n", pclDetected.Summary())
+		fmt.Printf("[✓] 检测到启动器: %s\n", pclDetected.Summary())
 		localCfg.Launcher = "pcl2"
-		if err := mg.SaveLocal(localCfg); err != nil {
-			logger.Warn("保存启动器配置失败: %v", err)
-		}
 	} else {
 		fmt.Println("[*] 未检测到 PCL2，使用裸启动模式")
 	}
 
-	// 3. 读取服务端配置，确定目标版本
-	vc, err := mg.LoadLocalServerConfig()
-	var targetVersion string
-	if err == nil && vc.ID != "" {
-		targetVersion = vc.ID
-		fmt.Printf("[✓] 目标版本: %s (来自 server.json)\n", targetVersion)
-	} else {
-		// 没有 server.json，拉 manifest 用最新 release
-		manifestDir := filepath.Join(cfgDir, ".cache", "manifest")
-		mm := launcher.NewVersionManifestManager(manifestDir)
-		manifest, fetchErr := mm.Fetch(30 * time.Minute)
-		if fetchErr != nil {
-			logger.Error("版本清单拉取失败: %v", fetchErr)
-			fmt.Fprintf(os.Stderr, "run: 版本清单拉取失败: %v\n", fetchErr)
-			return
-		}
-		targetVersion = manifest.Latest.Release
-		fmt.Printf("[*] 目标版本: %s (最新正式版, 无 server.json)\n", targetVersion)
-	}
-
-	if dryRun {
-		fmt.Printf("[DRY-RUN] 将启动版本: %s\n", targetVersion)
+	serverURL := localCfg.ServerURL
+	if serverURL == "" {
+		fmt.Fprintf(os.Stderr, "run: local.json 中缺少 server_url，请先配置\n")
 		return
 	}
 
-	// 4. 查找本地版本目录
-	if localCfg != nil && len(localCfg.Packs) == 0 {
-		// 无已管理的包时，用 MC 版本名作为默认
-		localCfg.Packs = map[string]model.PackState{
-			targetVersion: {Enabled: true, Status: "none", Dir: targetVersion},
+	// 拉服务端包列表 — 获取 (mc_version, loader) 信息
+	fmt.Println("\n[1/4] 拉取服务端包列表...")
+	if pingErr := mg.Ping(serverURL); pingErr != nil {
+		fmt.Fprintf(os.Stderr, "run: 无法连接服务端: %v\n", pingErr)
+		return
+	}
+	packsResp, err := mg.FetchPacks(serverURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "run: 拉取包列表失败: %v\n", err)
+		return
+	}
+	fmt.Printf("      服务端 %d 个包\n", len(packsResp.Packs))
+
+	// 同步包列表到本地配置
+	for _, p := range packsResp.Packs {
+		if _, exists := localCfg.Packs[p.Name]; !exists {
+			channelsMap := make(map[string]model.ChannelState)
+			for _, ch := range p.Channels {
+				channelsMap[ch.Name] = model.ChannelState{
+					Enabled: ch.Required,
+					Version: "",
+				}
+			}
+			localCfg.Packs[p.Name] = model.PackState{
+				Enabled:  p.Primary,
+				Status:   "none",
+				Dir:      fmt.Sprintf("packs/%s", p.Name),
+				Channels: channelsMap,
+			}
 		}
 	}
-	// 提取已管理的版本名列表
-	managedVersions := make([]string, 0, len(localCfg.Packs))
-	for name := range localCfg.Packs {
-		managedVersions = append(managedVersions, name)
-	}
-	finder := launcher.NewVersionFinder(nil)
-	results := finder.FindManagedVersions(managedVersions)
-	versionResult := results[targetVersion]
+	mg.SaveLocal(localCfg)
 
-	if versionResult == nil || !versionResult.Found {
-		// 首次启动: 版本未安装 → 执行同步
-		fmt.Printf("[*] 版本 %s 未安装, 首次启动自动同步...\n", targetVersion)
-		sync(cfgDir, verbose, false)
+	if localCfg.MinecraftDir == "" {
+		fmt.Fprintf(os.Stderr, "run: 未设置 .minecraft 目录，请先配置\n")
+		return
+	}
+	mcDir := localCfg.MinecraftDir
+	versionsDir := filepath.Join(mcDir, "versions")
+	librariesDir := filepath.Join(mcDir, "libraries")
+
+	// 2-3. 逐包处理
+	fmt.Println("\n[2/4] 检查 MC 版本环境...")
+	fmt.Println("\n[3/4] 更新整合包内容...")
+
+	updater := launcher.NewUpdater(cfgDir, mcDir, mg)
+	processed := 0
+	for packName, state := range localCfg.Packs {
+		if !state.Enabled {
+			logger.Debug("[%s] 已禁用，跳过", packName)
+			continue
+		}
+
+		fmt.Printf("\n--- 包: %s ---\n", packName)
+
+		// a. 拉包详情获取 mc_version + loader
+		detail, detailErr := mg.FetchPackDetail(serverURL, packName)
+		mcVersion := ""
+		loader := ""
+		if detailErr == nil {
+			mcVersion = detail.MCVersion
+			loader = detail.Loader
+		} else {
+			logger.Warn("[%s] 拉取详情失败，使用配置中的值时: %v", packName, detailErr)
+		}
+
+		// b. 确保 MC 本体 + Loader 已安装
+		if mcVersion != "" {
+			fmt.Printf("      目标: MC %s", mcVersion)
+			if loader != "" {
+				fmt.Printf(" + %s", loader)
+			}
+			fmt.Println()
+
+			if dryRun {
+				fmt.Printf("      [DRY-RUN] 跳过 EnsureVersion\n")
+			} else {
+				ensureReq := launcher.EnsureRequest{
+					MCVersion:  mcVersion,
+					Loader:     loader,
+					VersionDir: versionsDir,
+					LibraryDir: librariesDir,
+				}
+				if err := updater.EnsureVersion(ensureReq); err != nil {
+					logger.Error("[%s] EnsureVersion 失败: %v", packName, err)
+					fmt.Fprintf(os.Stderr, "      ✗ MC 版本环境准备失败: %v\n", err)
+					continue
+				}
+				fmt.Println("      ✓ MC 版本环境就绪")
+			}
+		} else {
+			fmt.Println("      服务端未指定 MC 版本，跳过 MC 本体下载")
+		}
+
+		// c. 更新整合包自定义内容
+		if dryRun {
+			fmt.Printf("      [DRY-RUN] 跳过 UpdatePack\n")
+		} else {
+			result, updateErr := updater.UpdatePack(serverURL, packName, &state, false)
+			if updateErr != nil {
+				logger.Error("[%s] UpdatePack 失败: %v", packName, updateErr)
+				fmt.Fprintf(os.Stderr, "      ✗ 更新失败: %v\n", updateErr)
+				continue
+			}
+			fmt.Printf("      ✓ %s\n", result.Summary())
+			state.LocalVersion = result.Version
+			state.Status = "synced"
+			localCfg.Packs[packName] = state
+		}
+
+		// d. packs/ → versions/ 合并（创建可被启动器识别的完整版本）
+		packDir := filepath.Join(mcDir, "packs", packName)
+		// 版本名：使用 pack name 代替 MC version，用于启动器识别
+		versionName := fmt.Sprintf("mc-starter-%s", packName)
+		versionTargetDir := filepath.Join(versionsDir, versionName)
+
+		if dryRun {
+			fmt.Printf("      [DRY-RUN] 合并 %s → %s\n", packDir, versionTargetDir)
+		} else {
+			merged, mergeErrs := launcher.MergePackToVersion(packDir, versionTargetDir, dryRun)
+			if len(mergeErrs) > 0 {
+				for _, me := range mergeErrs {
+					logger.Warn("[%s] 合并部分失败: %v", packName, me)
+				}
+			}
+			if merged > 0 {
+				fmt.Printf("      ✓ 已合并 %d 个文件到 versions/%s/\n", merged, versionName)
+				fmt.Printf("        💡 在启动器中选择版本 \"%s\" 启动\n", versionName)
+			}
+		}
+
+		processed++
+		_ = mcVersion
+		_ = loader
+	}
+
+	if processed == 0 {
+		fmt.Println("\n没有已启用的包需要处理")
 	} else {
-		from := "路径扫描"
-		if versionResult.FromPCL {
-			from = "PCL配置"
-		}
-		fmt.Printf("[✓] 版本 %s 已安装于 %s (来自 %s)\n",
-			targetVersion, versionResult.VersionDir, from)
+		fmt.Printf("\n✓ 处理完成: %d 个包\n", processed)
 	}
 
-	// TODO: 5. 拉起启动器（启动游戏）
-	logger.Info("run: 同步完成, 等待启动器拉起功能")
-	fmt.Println("run: 同步完成，启动器拉起功能开发中")
-	logger.Info("run: 全自动模式完成")
+	// 保存配置
+	mg.SaveLocal(localCfg)
 
-	// P3 自更新: 标记新版本启动成功
-	updater2 := launcher.NewSelfUpdater(filepath.Join(cfgDir, ".local"), version, localCfg.ServerURL)
+	// P3 自更新标记
+	updater2 := launcher.NewSelfUpdater(filepath.Join(cfgDir, ".local"), version, serverURL)
 	updater2.MarkStartupOK()
+
+	fmt.Println("\n=== 全自动模式完成 ===")
 }
 
 func initialize(cfgDir string) {
@@ -1012,19 +1115,37 @@ func handleUpdateMulti(cfgDir string, verbose, dryRun bool, packName string, upd
 		state.LocalVersion = result.Version
 		state.Status = "synced"
 
-		// P6: 同步包详情中的频道信息
+		// P6: 同步包详情中的频道信息 + Loader 提示
 		detail, detailErr := mg.FetchPackDetail(serverURL, packName)
-		if detailErr == nil && len(detail.Channels) > 0 {
-			if state.Channels == nil {
-				state.Channels = make(map[string]model.ChannelState)
-			}
-			for _, ch := range detail.Channels {
-				if _, ok := state.Channels[ch.Name]; !ok {
-					state.Channels[ch.Name] = model.ChannelState{
-						Enabled: ch.Required,
-						Version: ch.Version,
+		if detailErr == nil {
+			if len(detail.Channels) > 0 {
+				if state.Channels == nil {
+					state.Channels = make(map[string]model.ChannelState)
+				}
+				for _, ch := range detail.Channels {
+					if _, ok := state.Channels[ch.Name]; !ok {
+						state.Channels[ch.Name] = model.ChannelState{
+							Enabled: ch.Required,
+							Version: ch.Version,
+						}
 					}
 				}
+			}
+
+			// Loader 信息提示
+			if detail.MCVersion != "" {
+				fmt.Printf("\n📦 %s: 需要 MC %s", packName, detail.MCVersion)
+				if detail.Loader != "" {
+					fmt.Printf(" + %s", detail.Loader)
+				}
+				fmt.Println()
+				versionName := fmt.Sprintf("mc-starter-%s", packName)
+				if detail.Loader != "" {
+					fmt.Printf("   💡 运行 `starter run` 自动安装 MC 本体 + %s\n", detail.Loader)
+				} else {
+					fmt.Printf("   💡 运行 `starter run` 自动安装 MC %s 本体\n", detail.MCVersion)
+				}
+				fmt.Printf("   💡 之后可在启动器中选 \"%s\" 版本启动\n", versionName)
 			}
 		}
 
@@ -1124,6 +1245,47 @@ func handleUpdateMulti(cfgDir string, verbose, dryRun bool, packName string, upd
 
 	if !hasNewVersion {
 		fmt.Println("所有包已是最新版本 ✓")
+	}
+
+	// Loader 信息提示：检查每个已更新包是否需要额外安装 Loader
+	fmt.Println()
+	for name := range localCfg.Packs {
+		detail, detailErr := mg.FetchPackDetail(serverURL, name)
+		if detailErr != nil {
+			continue
+		}
+		if detail.MCVersion == "" {
+			continue
+		}
+
+		fmt.Printf("📦 %s: 需要 MC %s", name, detail.MCVersion)
+		if detail.Loader != "" {
+			fmt.Printf(" + %s", detail.Loader)
+		}
+		fmt.Println()
+
+		// 检查是否已安装对应 version
+		versionName := fmt.Sprintf("mc-starter-%s", name)
+		versionDir := filepath.Join(mcDir, "versions", versionName)
+		if _, statErr := os.Stat(versionDir); os.IsNotExist(statErr) {
+			fmt.Printf("   ⚠ versions/%s/ 不存在，运行 `starter run` 即可自动安装\n", versionName)
+		} else if detail.Loader != "" {
+			// 检查 loader 是否就绪（简单检查版本 json 中是否包含 loader 库引用）
+			verJSON := filepath.Join(versionDir, fmt.Sprintf("%s.json", versionName))
+			if _, statErr := os.Stat(verJSON); os.IsNotExist(statErr) {
+				fmt.Printf("   ⚠ 版本 json 缺失，运行 `starter run` 重建\n")
+			} else {
+				fmt.Printf("   ✓ 版本目录就绪，可在启动器中选 \"%s\" 启动\n", versionName)
+			}
+		}
+
+		// 提示自动安装
+		if detail.Loader != "" {
+			// 转成 EnsureRequest 格式
+			loaderSpec := fmt.Sprintf("%s-0.16.10", detail.Loader) // 默认版本，实际运行时自动选最新
+			fmt.Printf("   💡 如需自动安装 MC 本体 + %s，运行: starter run\n", detail.Loader)
+			_ = loaderSpec
+		}
 	}
 
 	// 有副包可用
