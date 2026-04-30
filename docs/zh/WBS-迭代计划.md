@@ -311,17 +311,17 @@ P5.3.⑬ 收冗余 finder.go            → 10m  ✅
   GUI 向导+设置 MC 目录改为下拉框，标注[已托管]/[未托管]
   副版本启用后显示独立 MC 目录下拉框（walk ComboBox）
 
-### 📋 Sprint 10（数据链路 + 端到端整合 — 2026-05-01 复盘启动）
+### 📋 Sprint 10（数据链路 + 端到端整合 — ✅ 代码完成）
 
 ```
 S10.1 数据链路补全
-├── pack.Manifest 加 MCVersion/Loader字段           → 30m  ✅ 已改
-├── IncrementalUpdate 模型加 MCVersion/Loader字段   → 15m  ⏳
-├── 服务端 update API 返回 mc_version + loader      → 15m  ⏳
-└── ImportZip 存入 Manifest                          → 10m  ✅ 已改
+├── pack.Manifest 加 MCVersion/Loader字段           → 30m  ✅
+├── IncrementalUpdate 模型加 MCVersion/Loader字段   → 15m  ✅
+├── 服务端 update API 返回 mc_version + loader      → 15m  ✅
+└── ImportZip 存入 Manifest                          → 10m  ✅
 
 S10.2 客户端编排
-├── 新增 EnsureVersion() 函数（sync + loader install）→ 2h   ⏳
+├── 新增 EnsureVersion() 函数（sync + loader install）→ 2h   ✅
 ├── starter run 重写（6 步流程）                    → 2h   ⏳
 ├── handleUpdate 自动检测 loader 并提示/安装         → 1h   ⏳
 └── packs/ → versions/ 合并逻辑                     → 2h   ⏳
