@@ -59,6 +59,12 @@ make size           # check binary size
 
 MIT
 
+## Acknowledgements
+
+- **[PCL2](https://github.com/Hex-Dragon/PCL2)** — Primary reference for launcher architecture. mc-starter's rule matching, crash detection strategy, and incremental update design are all derived from deep study of PCL2's source code.
+- **[HMCL](https://github.com/huanghongxun/HMCL)** — Reference for multi-version isolation and multi-launcher compatibility.
+- **[MCUpdater / Grass-block](https://github.com/Grass-block/MCUpdater)** — Minecraft client resource update system whose Channel design and multi-pack version tracking approach informed mc-starter's P6 channel system plans.
+
 ---
 
 > [中文文档 →](docs/zh/README.md)

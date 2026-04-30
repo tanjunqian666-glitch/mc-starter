@@ -69,6 +69,12 @@ go build -ldflags="-s -w -H=windowsgui" -o starter.exe ./cmd/starter/
 
 MIT
 
+## 致谢
+
+- **[PCL2](https://github.com/Hex-Dragon/PCL2)** — 启动器核心参考。mc-starter 的规则匹配、崩溃检测策略、增量更新思路均来自对 PCL2 源码的深入学习与分析。
+- **[HMCL](https://github.com/huanghongxun/HMCL)** — 多版本隔离与多启动器兼容模式的参考。
+- **[MCUpdater / Grass-block](https://github.com/Grass-block/MCUpdater)** — Minecraft 客户端资源更新系统的频道设计（Channel）和多包版本追踪方案，已被纳入 mc-starter 的 P6 频道体系规划。
+
 ---
 
 > [English →](README.md)
