@@ -72,6 +72,7 @@ type ImportResult struct {
 	Version     string    `json:"version"`
 	MCVersion   string    `json:"mc_version,omitempty"`
 	Loader      string    `json:"loader,omitempty"`
+	DisplayName string    `json:"display_name,omitempty"` // 从 zip 中读到的整合包名
 	Manifest    *Manifest `json:"manifest"`
 	Diff        *Diff     `json:"diff,omitempty"`
 	PrevVersion string    `json:"prev_version,omitempty"`
@@ -105,6 +106,9 @@ func ImportZip(zipPath, repoDir, version string) (*ImportResult, error) {
 	}
 	manifest.Version = version
 
+	// 尝试从 modrinth.index.json 读取整合包名
+	displayName := extractDisplayNameFromZip(zipPath)
+
 	// 尝试推断 MC 版本和 Loader
 	mcVersion, loader := inferFromMods(manifest)
 
@@ -120,6 +124,7 @@ func ImportZip(zipPath, repoDir, version string) (*ImportResult, error) {
 		Version:     version,
 		MCVersion:   mcVersion,
 		Loader:      loader,
+		DisplayName: displayName,
 		Manifest:    manifest,
 		PrevVersion: prevVersion,
 	}
@@ -618,4 +623,46 @@ func ListVersions(repoDir string) (drafts, published []string, err error) {
 	sort.Sort(sort.Reverse(sort.StringSlice(published)))
 	sort.Sort(sort.Reverse(sort.StringSlice(drafts)))
 	return drafts, published, nil
+}
+
+// ============================================================
+// 从整合包 zip 提取信息
+// ============================================================
+
+// modrinthIndex 对应 modrinth.index.json 的结构
+type modrinthIndex struct {
+	Name       string `json:"name"`
+	VersionID  string `json:"versionId"`
+}
+
+// extractDisplayNameFromZip 尝试从 zip 中读取整合包名
+// 目前支持: modrinth.index.json 的 name 字段
+func extractDisplayNameFromZip(zipPath string) string {
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return ""
+	}
+	defer reader.Close()
+
+	for _, f := range reader.File {
+		if f.Name == "modrinth.index.json" {
+			rc, err := f.Open()
+			if err != nil {
+				return ""
+			}
+			defer rc.Close()
+
+			data, err := io.ReadAll(rc)
+			if err != nil {
+				return ""
+			}
+
+			var idx modrinthIndex
+			if err := json.Unmarshal(data, &idx); err != nil {
+				return ""
+			}
+			return idx.Name
+		}
+	}
+	return ""
 }
