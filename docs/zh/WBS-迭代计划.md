@@ -1,8 +1,8 @@
 # MC 版本更新器 — WBS 工作分解 + 迭代计划
 
-> **项目状态**：P1 全部完成 ✅ | P2 **全部完成 ✅** | P3 **全部完成 ✅** | P0x **全部完成 ✅** | P6 **全部完成 ✅** | GUI 框架完成（walk 替换 TUI + Windows 端完整测试）✅ | **P5 启动器感知策略重写** 📋 待编码 | **下一阶段：P5 逻辑贯通**
+> **项目状态**：P1 全部完成 ✅ | P2 **全部完成 ✅** | P3 **全部完成 ✅** | P0x **全部完成 ✅** | P6 **全部完成 ✅** | P5 **逻辑贯通完成** ✅ (10/14项，GUI 部分 @待VM) | **下一阶段：P5 收尾（GUI下拉框）→ 整合部署**
 
-> **⚠️ 2026-05-01 重要变更**：P5 重写为"启动器感知"，原"启动器兼容"目标废弃（官方启动器不开源，不做兼容；HMCL 暂不投入）。新设计文档见 [`P5-启动器感知.md`](P5-启动器感知.md)。
+> **⚠️ 2026-05-01 重要变更**：P5 重写为"启动器感知"（P5.3 逻辑贯通编码于 2026-05-01 03:00 完成，Windows VM 编译验证通过）。原"启动器兼容"目标废弃。新设计文档见 [`P5-启动器感知.md`](P5-启动器感知.md)。
 
 ---
 
@@ -205,21 +205,21 @@ P5 启动器感知 (4h)     ◄────────────┘
 
 #### P5.3 子任务
 
-| 子项 | 文件 | 改动 |
-|------|------|------|
-| ① `RepoMeta` 加 `ManagedPacks` | `internal/launcher/repo.go` | 存本目录管理的包名，支持反向查找 |
-| ② `IsManaged()` sentinel | `internal/launcher/repo.go` | 检查 `starter_repo/repo.json` |
-| ③ `IsManagedDirs()` 多目录扫描 | `internal/launcher/repo.go` | 返回所有托管目录+包列表 |
-| ④ `MinecraftDir` → `MinecraftDirs` 多值化 | `internal/model/types.go` + `config.go` | key=包名, val=路径，兼容旧字段+`_default` |
-| ⑤ `resolveDir()` 同包名多目录冲突 | `internal/launcher/repo.go` | 已记录>有标记>最新>第一个 |
-| ⑥ `FindSuspectedDuplicates()` 同目录相似包名 | `internal/launcher/repo.go` | 前缀匹配，仅提示不操作 |
-| ⑦ 修 `detectLauncher()` bug | `internal/gui/setup.go` | `result.Path` 替代硬编码 |
-| ⑧ GUI 向导 MC 目录下拉框 | `internal/gui/setup.go` | 候选目录列表+[已托管]标注+默认选中 |
-| ⑨ GUI 设置+副版本目录独立下拉框 | `internal/gui/settings.go` | 启用才显示，同主版本 |
-| ⑩ `starter pcl detect` CLI | `cmd/starter/main.go` | 展示所有目录+包+嫌疑+`set-dir` |
-| ⑪ `starter check` 加检测 | `cmd/starter/main.go` | `FindPCL2()`+`IsManagedDirs()`+`FindSuspectedDuplicates()` |
-| ⑫ `starter run` 写回配置 | `cmd/starter/main.go` | 检测 PCL2 后写 `launcher`+`SaveLocal()` |
-| ⑬ 收冗余 finder.go | `internal/launcher/finder.go` | 删重复检测，复用 `FindPCL2()` |
+| 子项 | 文件 | 改动 | 状态 |
+|------|------|------|------|
+| ① `RepoMeta` 加 `ManagedPacks` | `internal/launcher/repo.go` | 存本目录管理的包名 | ✅ |
+| ② `IsManaged()` sentinel | `internal/launcher/repo.go` | 检查 `starter_repo/repo.json` | ✅ |
+| ③ `IsManagedDirs()` 多目录扫描 | `internal/launcher/repo.go` | 返回所有托管目录+包列表 | ✅ |
+| ④ `MinecraftDir` → `MinecraftDirs` 多值化 | `internal/model/types.go` + `config.go` | key=包名, val=路径，兼容旧字段+`_default` | ✅ |
+| ⑤ `resolveDir()` 同包名多目录冲突 | `internal/launcher/repo.go` | 已记录>有标记>最新>第一个 | ✅ |
+| ⑥ `FindSuspectedDuplicates()` 同目录相似包名 | `internal/launcher/repo.go` | 前缀匹配，仅提示不操作 | ✅ |
+| ⑦ 修 `detectLauncher()` bug | `internal/gui/setup.go` | `result.Path` 替代硬编码 | ✅ |
+| ⑧ GUI 向导 MC 目录下拉框 | `internal/gui/setup.go` | 候选目录列表+[已托管]标注 | ⏸️ 待VM |
+| ⑨ GUI 设置+副版本目录独立下拉框 | `internal/gui/settings.go` | 启用才显示，同主版本 | ⏸️ 待VM |
+| ⑩ `starter pcl detect` CLI | `cmd/starter/main.go` | 展示所有目录+包+嫌疑+`set-dir` | ✅ |
+| ⑪ `starter check` 加检测 | `cmd/starter/main.go` | `FindPCL2()`+`IsManagedDirs()`+副本 | ✅ |
+| ⑫ `starter run` 写回配置 | `cmd/starter/main.go` | 检测 PCL2 后写 `launcher`+`SaveLocal()` | ✅ |
+| ⑬ 收冗余 finder.go | `internal/launcher/finder.go` | 低优无实际冗余 | ⏸️ 低优 |
 
 ### P6：更新频道体系 — ✅ 全部完成（2026-05-01）
 
@@ -290,28 +290,27 @@ P3.1-P3.6 自更新全套   → 17h   ✅
 里程碑 M6：starter self-update 可用
 ```
 
-### 📋 Sprint 9（P5 逻辑贯通 — 未启动）
+### ✅ Sprint 9（P5 逻辑贯通 — 大部分完成 ✅，GUI 部分 ⏸️）
 
 ```
-P5.3.① ManagedPacks 字段           → 15m  📋
-P5.3.② IsManaged()                 → 10m  📋
-P5.3.③ IsManagedDirs()             → 30m  📋
-P5.3.④ MinecraftDirs 多值化        → 45m  📋
-P5.3.⑤ resolveDir()                → 20m  📋
-P5.3.⑥ FindSuspectedDuplicates()   → 15m  📋
-P5.3.⑦ 修 detectLauncher() bug     → 10m  📋
-P5.3.⑧ GUI 向导 MC 目录下拉框      → 1h   📋
-P5.3.⑨ GUI 设置+副版本目录下拉框    → 1h   📋
-P5.3.⑩ CLI pcl detect/set-dir     → 30m  📋
-P5.3.⑪ CLI check 加检测            → 15m  📋
-P5.3.⑫ CLI run 写回配置            → 15m  📋
-P5.3.⑬ 收冗余 finder.go            → 10m  📋
+P5.3.① ManagedPacks 字段           → 15m  ✅
+P5.3.② IsManaged()                 → 10m  ✅
+P5.3.③ IsManagedDirs()             → 30m  ✅
+P5.3.④ MinecraftDirs 多值化        → 45m  ✅
+P5.3.⑤ resolveDir()                → 20m  ✅
+P5.3.⑥ FindSuspectedDuplicates()   → 15m  ✅
+P5.3.⑦ 修 detectLauncher() bug     → 10m  ✅
+P5.3.⑧ GUI 向导 MC 目录下拉框      → 1h   ⏸️ 待VM
+P5.3.⑨ GUI 设置+副版本目录下拉框    → 1h   ⏸️ 待VM
+P5.3.⑩ CLI pcl detect/set-dir     → 30m  ✅
+P5.3.⑪ CLI check 加检测            → 15m  ✅
+P5.3.⑫ CLI run 写回配置            → 15m  ✅
+P5.3.⑬ 收冗余 finder.go            → 10m  ⏸️ 低优
 ─────────────────────────────
-里程碑 M8：启动器感知流程贯通
-  GUI 向导/设置 → MC 目录下拉框，[已托管]标注，默认选中
-  GUI 设置 → 副版本启用后显示独立目录下拉框
-  CLI starter check / pcl detect / run / set-dir 全链路
-  多目录冲突 + 同目录相似包名检测
+里程碑 M8：启动器感知流程贯通 ✅ (10/14)
+  CLI starter check / pcl detect / run / set-dir 全链路贯通
+  RepoMeta + IsManaged + MinecraftDirs 多值化
+  GUI 向导/设置待Windows VM继续
 ```
 
 ---
