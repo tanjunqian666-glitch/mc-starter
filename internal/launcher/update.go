@@ -263,8 +263,8 @@ func (u *Updater) applyFullUpdate(serverURL, packName string, update *model.Incr
 
 	// 1. 拉起整包 zip
 	baseURL := strings.TrimRight(serverURL, "/")
-	fullURL := fmt.Sprintf("%s/api/v1/packs/%s/download?channels=%s",
-		baseURL, packName, strings.Join(u.getEnabledChannels(nil), ","))
+	fullURL := fmt.Sprintf("%s/api/v1/packs/%s/download",
+		baseURL, packName)
 
 	tmpFile, err := os.CreateTemp("", "mc-pack-full-*.zip")
 	if err != nil {

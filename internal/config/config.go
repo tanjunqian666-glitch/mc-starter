@@ -24,7 +24,7 @@ func New(dir string) *Manager {
 	return &Manager{
 		dir: dir,
 		client: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: 5 * time.Minute,
 		},
 	}
 }
