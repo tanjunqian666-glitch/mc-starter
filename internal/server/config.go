@@ -37,6 +37,7 @@ type AuthSection struct {
 
 // StorageSection 存储配置
 type StorageSection struct {
+	StoreType     string `yaml:"store_type"`     // "json" | "sqlite"（兼容未来）
 	DataDir       string `yaml:"data_dir"`
 	PacksDir      string `yaml:"packs_dir"`
 	FileStorage   string `yaml:"file_storage"` // "local" (暂只支持)
@@ -62,6 +63,7 @@ func DefaultConfig() *ServerConfig {
 			ClientRequireToken:   false,
 		},
 		Storage: StorageSection{
+			StoreType:     "json",
 			DataDir:       "./data",
 			PacksDir:      "./packs",
 			FileStorage:   "local",
@@ -108,7 +110,7 @@ func (s *ServerConfig) ListenAddr() string {
 // 支持的环境变量:
 //   MC_SERVER_HOST, MC_SERVER_PORT, MC_SERVER_TLS_ENABLED
 //   MC_AUTH_ENABLED, MC_AUTH_ADMIN_TOKEN, MC_AUTH_CLIENT_REQUIRE_TOKEN
-//   MC_STORAGE_DATA_DIR, MC_STORAGE_PACKS_DIR
+//   MC_STORAGE_DATA_DIR, MC_STORAGE_PACKS_DIR, MC_STORAGE_STORE_TYPE
 //   MC_PACKS_DEFAULT_PRIMARY
 func applyEnvOverrides(cfg *ServerConfig) *ServerConfig {
 	if v := os.Getenv("MC_SERVER_HOST"); v != "" {
@@ -130,6 +132,9 @@ func applyEnvOverrides(cfg *ServerConfig) *ServerConfig {
 	}
 	if v := os.Getenv("MC_AUTH_CLIENT_REQUIRE_TOKEN"); v != "" {
 		cfg.Auth.ClientRequireToken = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("MC_STORAGE_STORE_TYPE"); v != "" {
+		cfg.Storage.StoreType = v
 	}
 	if v := os.Getenv("MC_STORAGE_DATA_DIR"); v != "" {
 		cfg.Storage.DataDir = v

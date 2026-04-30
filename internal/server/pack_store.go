@@ -217,6 +217,11 @@ func (s *PackStore) VersionsDir(name string) string {
 	return filepath.Join(s.PackDir(name), "versions")
 }
 
+// Config 返回服务端配置
+func (s *PackStore) Config() *ServerConfig {
+	return s.config
+}
+
 // packFileInfo 缓存的文件信息
 type packFileInfo struct {
 	sizeMB    float64

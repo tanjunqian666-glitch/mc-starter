@@ -25,6 +25,8 @@ auth:
   client_require_token: false
 
 storage:
+  # 存储后端类型: "json"（文件系统 JSON）| "sqlite"（未来）
+  store_type: "json"
   # 运行时数据目录 (索引、日志等)
   data_dir: "./data"
   # 整合包存储根目录

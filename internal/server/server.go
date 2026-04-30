@@ -17,15 +17,15 @@ import (
 // Server mc-starter-server 实例
 type Server struct {
 	config  *ServerConfig
-	store   *PackStore
+	store   PackStoreIface
 	httpSrv *http.Server
 }
 
 // NewServer 创建 Server 实例
 func NewServer(cfg *ServerConfig) (*Server, error) {
-	store, err := NewPackStore(cfg)
+	store, err := NewStore(cfg, cfg.Storage.StoreType)
 	if err != nil {
-		return nil, fmt.Errorf("初始化 PackStore 失败: %w", err)
+		return nil, fmt.Errorf("初始化存储后端失败: %w", err)
 	}
 
 	s := &Server{
