@@ -85,7 +85,6 @@ type LocalConfig struct {
 	Packs        map[string]PackState `json:"packs,omitempty"`
 	Launcher     string               `json:"launcher,omitempty"` // "bare" | "pcl2" | "hmcl"
 	JavaHome     string               `json:"java_home,omitempty"`
-	Memory       int                  `json:"memory,omitempty"`
 	Username     string               `json:"username,omitempty"`
 	MirrorMode   string               `json:"mirror_mode,omitempty"` // "auto" | "china" | "global"
 }

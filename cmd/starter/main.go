@@ -265,7 +265,6 @@ func initialize(cfgDir string) {
 	local := &model.LocalConfig{
 		MinecraftDir: ".minecraft",
 		Launcher:    "bare",
-		Memory:      4096,
 		Username:    "Player",
 	}
 
@@ -296,7 +295,6 @@ func check(cfgDir string, verbose bool) {
 		fmt.Printf("[✓] 本地配置: %s\n", cfgDir)
 		fmt.Printf("    安装目录: %s\n", localCfg.MinecraftDir)
 		fmt.Printf("    启动器: %s\n", localCfg.Launcher)
-		fmt.Printf("    内存: %d MB\n", localCfg.Memory)
 	}
 
 	// 2. 尝试拉取版本清单
@@ -1666,7 +1664,6 @@ func ensureConfig(cfgDir string) error {
 		local := &model.LocalConfig{
 			MinecraftDir: ".minecraft",
 			Launcher:    "bare",
-			Memory:      4096,
 			Username:    "Player",
 		}
 		if err := mg.SaveLocal(local); err != nil {
