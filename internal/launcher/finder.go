@@ -156,7 +156,10 @@ func (f *VersionFinder) findViaFallback(remaining map[string]bool, results map[s
 	}
 
 	// 2. 默认路径
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
 	defaults := []string{
 		filepath.Join(home, ".minecraft"),
 		filepath.Join(home, "AppData", "Roaming", ".minecraft"),
@@ -274,7 +277,10 @@ func FindMinecraftDirs() []string {
 	}
 
 	// 2. 默认路径
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
 	defaults := []string{
 		filepath.Join(home, ".minecraft"),
 		filepath.Join(home, "AppData", "Roaming", ".minecraft"),

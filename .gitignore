@@ -39,5 +39,5 @@ config/local.json
 .env.local
 
 # Dependency
-go.sum
-.tracking/
+# go.sum is committed for reproducible builds (go 1.22+)
+#.tracking/
