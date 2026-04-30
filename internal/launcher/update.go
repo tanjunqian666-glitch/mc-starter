@@ -4,15 +4,14 @@ import (
 	"archive/zip"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
+	"github.com/gege-tlph/mc-starter/internal/config"
 	"github.com/gege-tlph/mc-starter/internal/logger"
 	"github.com/gege-tlph/mc-starter/internal/model"
 )
@@ -87,25 +86,27 @@ type Updater struct {
 	mcDir      string
 	cache      *CacheStore
 	repo       *LocalRepo
-	httpClient HTTPClient
+	api        *config.Manager
 }
 
 // NewUpdater 创建增量更新管理器
-func NewUpdater(cfgDir, mcDir string) *Updater {
+func NewUpdater(cfgDir, mcDir string, api *config.Manager) *Updater {
 	cacheDir := filepath.Join(cfgDir, ".cache", "mc_cache")
 	cache := NewCacheStore(cacheDir)
 	cache.Init()
 
 	repo := NewLocalRepo(mcDir)
 
+	if api == nil {
+		api = config.New(cfgDir)
+	}
+
 	return &Updater{
 		cfgDir: cfgDir,
 		mcDir:  mcDir,
 		cache:  cache,
 		repo:   repo,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		api:    api,
 	}
 }
 
@@ -114,92 +115,6 @@ func (u *Updater) CacheStore() *CacheStore { return u.cache }
 
 // LocalRepo 返回内部仓库
 func (u *Updater) LocalRepo() *LocalRepo { return u.repo }
-
-// ============================================================
-// API 助手
-// ============================================================
-
-type updateAPI interface {
-	FetchUpdate(serverURL, packName, fromVersion string) (*model.IncrementalUpdate, error)
-	DownloadFile(serverURL, packName, fileHash, destPath string) error
-}
-
-func makeUpdateAPI(cfgDir string) updateAPI {
-	// 返回一个简单的实现，使用 config.Manager 的 HTTP 方法
-	return &httpUpdateAPI{cfgDir: cfgDir}
-}
-
-type httpUpdateAPI struct {
-	cfgDir string
-}
-
-func (h *httpUpdateAPI) fetch(url string) ([]byte, error) {
-	if strings.HasPrefix(url, "/") || strings.HasPrefix(url, "./") || strings.HasPrefix(url, "file://") {
-		filePath := strings.TrimPrefix(url, "file://")
-		return os.ReadFile(filePath)
-	}
-	c := &http.Client{Timeout: 30 * time.Second}
-	resp, err := c.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	return io.ReadAll(resp.Body)
-}
-
-func (h *httpUpdateAPI) FetchUpdate(serverURL, packName, fromVersion string) (*model.IncrementalUpdate, error) {
-	base := strings.TrimRight(serverURL, "/")
-	url := fmt.Sprintf("%s/api/v1/packs/%s/update", base, packName)
-	if fromVersion != "" {
-		url += "?from=" + fromVersion
-	}
-	data, err := h.fetch(url)
-	if err != nil {
-		return nil, err
-	}
-	var u model.IncrementalUpdate
-	if err := json.Unmarshal(data, &u); err != nil {
-		return nil, err
-	}
-	return &u, nil
-}
-
-func (h *httpUpdateAPI) DownloadFile(serverURL, packName, fileHash, destPath string) error {
-	base := strings.TrimRight(serverURL, "/")
-	url := fmt.Sprintf("%s/api/v1/packs/%s/files/%s", base, packName, fileHash)
-	return downloadToFile(url, destPath)
-}
-
-func downloadToFile(url, destPath string) error {
-	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-		return err
-	}
-	tmpPath := destPath + ".tmp"
-	defer os.Remove(tmpPath)
-
-	c := &http.Client{Timeout: 30 * time.Second}
-	resp, err := c.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	f, err := os.Create(tmpPath)
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(f, resp.Body)
-	f.Close()
-	if err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, destPath)
-}
 
 // ============================================================
 // 核心：更新单个包
@@ -211,8 +126,6 @@ func downloadToFile(url, destPath string) error {
 func (u *Updater) UpdatePack(serverURL, packName string, packState *model.PackState, forceFull bool) (*UpdateResult, error) {
 	result := &UpdateResult{PackName: packName}
 
-	api := makeUpdateAPI(u.cfgDir)
-
 	// 1. 拉取增量信息
 	localVer := ""
 	if packState != nil && packState.LocalVersion != "" {
@@ -220,7 +133,7 @@ func (u *Updater) UpdatePack(serverURL, packName string, packState *model.PackSt
 	}
 	result.FromVersion = localVer
 
-	update, err := api.FetchUpdate(serverURL, packName, localVer)
+	update, err := u.api.FetchUpdate(serverURL, packName, localVer)
 	if err != nil {
 		return nil, fmt.Errorf("拉取 %s 更新信息失败: %w", packName, err)
 	}
@@ -236,18 +149,18 @@ func (u *Updater) UpdatePack(serverURL, packName string, packState *model.PackSt
 	// 全量模式
 	if update.Mode == "full" || forceFull {
 		logger.Info("[%s] 全量更新: %s → %s", packName, localVer, update.Version)
-		return u.applyFullUpdate(api, serverURL, packName, update, result)
+		return u.applyFullUpdate(serverURL, packName, update, result)
 	}
 
 	// 2. 增量模式
-	return u.applyIncremental(api, serverURL, packName, update, result, packState)
+	return u.applyIncremental(serverURL, packName, update, result, packState)
 }
 
 // ============================================================
 // 增量更新
 // ============================================================
 
-func (u *Updater) applyIncremental(api updateAPI, serverURL, packName string, update *model.IncrementalUpdate, result *UpdateResult, packState *model.PackState) (*UpdateResult, error) {
+func (u *Updater) applyIncremental(serverURL, packName string, update *model.IncrementalUpdate, result *UpdateResult, packState *model.PackState) (*UpdateResult, error) {
 	incr := update
 	packDir := filepath.Join(u.mcDir, "packs", packName)
 	_ = packState
@@ -297,7 +210,7 @@ func (u *Updater) applyIncremental(api updateAPI, serverURL, packName string, up
 		}
 
 		// 下载
-		if err := api.DownloadFile(serverURL, packName, entry.Hash, fullPath); err != nil {
+		if err := u.api.DownloadFile(serverURL, packName, entry.Hash, fullPath); err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("下载 %s 失败: %v", entry.Path, err))
 			continue
 		}
@@ -329,7 +242,7 @@ func (u *Updater) applyIncremental(api updateAPI, serverURL, packName string, up
 // 全量更新（兜底）
 // ============================================================
 
-func (u *Updater) applyFullUpdate(api updateAPI, serverURL, packName string, update *model.IncrementalUpdate, result *UpdateResult) (*UpdateResult, error) {
+func (u *Updater) applyFullUpdate(serverURL, packName string, update *model.IncrementalUpdate, result *UpdateResult) (*UpdateResult, error) {
 	// 全量时，需先拉 manifest 或整包 zip
 	// 目前全量未做完整实现，先报错提示
 	return result, fmt.Errorf("[%s] 全量更新尚未实现，请使用 starter sync 先同步后再 update", packName)
@@ -433,8 +346,21 @@ func (u *Updater) DownloadFullPack(fullPackURL, fullPackHash, destDir string) (*
 	tmpFile.Close()
 	defer os.Remove(tmpPath)
 
-	if err := downloadToFile(fullPackURL, tmpPath); err != nil {
+	// 用 u.api 的 HTTP client 下载
+	resp, err := u.api.HTTPGet(fullPackURL)
+	if err != nil {
 		return nil, fmt.Errorf("下载全量包失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	out, err := os.Create(tmpPath)
+	if err != nil {
+		return nil, err
+	}
+	_, err = io.Copy(out, resp.Body)
+	out.Close()
+	if err != nil {
+		return nil, err
 	}
 
 	if fullPackHash != "" {

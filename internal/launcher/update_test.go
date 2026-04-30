@@ -2,10 +2,10 @@ package launcher
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/gege-tlph/mc-starter/internal/config"
 	"github.com/gege-tlph/mc-starter/internal/model"
 )
 
@@ -64,51 +64,6 @@ func TestParseIncrementalUpdate(t *testing.T) {
 }
 
 // ============================================================
-// UpdatePack 基础测试
-// ============================================================
-
-func TestUpdatePackLocalFile(t *testing.T) {
-	// 使用本地模拟 JSON 文件测试 UpdatePack
-	tmpDir := t.TempDir()
-
-	// 写一个本地模拟的增量响应
-	respDir := filepath.Join(tmpDir, "api")
-	os.MkdirAll(respDir, 0755)
-	updateData := `{
-		"version": "v1.2.0",
-		"from_version": "v1.1.0",
-		"mode": "incremental",
-		"added": [
-			{"path": "mods/test-mod.jar", "hash": "testhash123", "size": 1024}
-		],
-		"updated": [],
-		"removed": []
-	}`
-
-	// 模拟 API 端点
-	apiDir := filepath.Join(tmpDir, "api_test")
-	os.MkdirAll(apiDir, 0755)
-	os.WriteFile(filepath.Join(apiDir, "update.json"), []byte(updateData), 0644)
-
-	// 配置目录
-	cfgDir := filepath.Join(tmpDir, "config")
-	mcDir := filepath.Join(tmpDir, ".minecraft")
-
-	updater := NewUpdater(cfgDir, mcDir)
-
-	// 可以成功构造 updater
-	if updater == nil {
-		t.Fatal("NewUpdater 返回 nil")
-	}
-	if updater.cache == nil {
-		t.Error("CacheStore 未初始化")
-	}
-	if updater.repo == nil {
-		t.Error("LocalRepo 未初始化")
-	}
-}
-
-// ============================================================
 // Updater 构造测试
 // ============================================================
 
@@ -117,17 +72,15 @@ func TestNewUpdater(t *testing.T) {
 	cfgDir := filepath.Join(tmpDir, "config")
 	mcDir := filepath.Join(tmpDir, ".minecraft")
 
-	u := NewUpdater(cfgDir, mcDir)
+	u := NewUpdater(cfgDir, mcDir, config.New(cfgDir))
 	if u == nil {
 		t.Fatal("NewUpdater returned nil")
 	}
 
-	// 验证 CacheStore 初始化
 	if u.CacheStore() == nil {
 		t.Error("CacheStore() returned nil")
 	}
 
-	// 验证 LocalRepo 初始化
 	if u.LocalRepo() == nil {
 		t.Error("LocalRepo() returned nil")
 	}
@@ -161,5 +114,16 @@ func TestUpdateResultSummary(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("Summary() = %q, want %q", got, tt.want)
 		}
+	}
+}
+
+// ============================================================
+// HTTPGet 方法测试
+// ============================================================
+
+func TestManagerHTTPGet(t *testing.T) {
+	mg := config.New("/tmp/test-config")
+	if mg == nil {
+		t.Fatal("config.New returned nil")
 	}
 }

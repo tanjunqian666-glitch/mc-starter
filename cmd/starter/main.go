@@ -905,7 +905,7 @@ func handleUpdateMulti(cfgDir string, verbose, dryRun bool, packName string, upd
 			return
 		}
 
-		updater := launcher.NewUpdater(cfgDir, mcDir)
+		updater := launcher.NewUpdater(cfgDir, mcDir, mg)
 		fmt.Printf("\n=== 更新: %s ===\n", packName)
 		result, err := updater.UpdatePack(serverURL, packName, &state, false)
 		if err != nil {
@@ -959,7 +959,7 @@ func handleUpdateMulti(cfgDir string, verbose, dryRun bool, packName string, upd
 	mg.SaveLocal(localCfg)
 
 	// 更新已启用的包
-	updater := launcher.NewUpdater(cfgDir, mcDir)
+	updater := launcher.NewUpdater(cfgDir, mcDir, mg)
 	results := updater.UpdateAllPacks(serverURL, localCfg.Packs)
 
 	hasNewVersion := false

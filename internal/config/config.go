@@ -117,6 +117,11 @@ func (m *Manager) Ping(serverURL string) error {
 	return nil
 }
 
+// HTTPGet 返回原始 HTTP 响应（用于外部文件下载）
+func (m *Manager) HTTPGet(url string) (*http.Response, error) {
+	return m.client.Get(url)
+}
+
 // ============================================================
 // 本地配置读写
 // ============================================================

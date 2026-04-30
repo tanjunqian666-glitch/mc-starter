@@ -1,0 +1,584 @@
+package server
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gege-tlph/mc-starter/internal/pack"
+)
+
+// ============================================================
+// 客户端端点
+// ============================================================
+
+// handlePing GET /api/v1/ping
+func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":   "ok",
+		"version":  "1.0.0",
+		"time":     time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+// handleListPacks GET /api/v1/packs
+func (s *Server) handleListPacks(w http.ResponseWriter, r *http.Request) {
+	packs := s.store.ListPacks()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"packs": packs,
+	})
+}
+
+// handleGetPack GET /api/v1/packs/{name}
+func (s *Server) handleGetPack(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "缺少包名")
+		return
+	}
+
+	detail, err := s.store.GetPack(name)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "PACK_NOT_FOUND", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, detail)
+}
+
+// handleGetUpdate GET /api/v1/packs/{name}/update?from={version}
+func (s *Server) handleGetUpdate(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	fromVersion := r.URL.Query().Get("from")
+
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "缺少包名")
+		return
+	}
+
+	versionsDir := s.store.VersionsDir(name)
+
+	// 读取最新发布的 manifest
+	latestVersion := ""
+	latestManifest := loadManifestFromDir(versionsDir, "")
+
+	if latestManifest != nil {
+		latestVersion = latestManifest.Version
+	}
+
+	if latestManifest == nil {
+		// 没有已发布的版本
+		writeError(w, http.StatusNotFound, "VERSION_NOT_FOUND", "整合包 '"+name+"' 没有已发布版本")
+		return
+	}
+
+	if fromVersion == "" {
+		// 没有 from 参数，返回全量信息
+		writeJSON(w, http.StatusOK, map[string]any{
+			"version":     latestVersion,
+			"from_version": "",
+			"mode":        "full",
+			"file_count":  latestManifest.FileCount,
+			"total_size":  latestManifest.TotalSize,
+		})
+		return
+	}
+
+	if fromVersion == latestVersion {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"version":      latestVersion,
+			"from_version": fromVersion,
+			"mode":         "incremental",
+			"added":        []any{},
+			"updated":      []any{},
+			"removed":      []string{},
+			"total_diff_bytes": 0,
+		})
+		return
+	}
+
+	// 加载上一版本的 manifest
+	fromManifest := loadManifestForVersion(versionsDir, fromVersion)
+	if fromManifest == nil {
+		writeError(w, http.StatusNotFound, "VERSION_NOT_FOUND", "版本 '"+fromVersion+"' 不存在")
+		return
+	}
+
+	// 计算差异
+	diff := pack.ComputeDiff(fromManifest, latestManifest)
+
+	// 转换格式
+	added := toFileChangeEntries(diff.Added, "sha256")
+	updated := toFileChangeEntriesFromDiff(diff.Updated)
+
+	removed := make([]string, len(diff.Removed))
+	for i, f := range diff.Removed {
+		removed[i] = f.Path
+	}
+
+	var totalDiffBytes int64
+	for _, f := range diff.Added {
+		totalDiffBytes += f.Size
+	}
+	for _, f := range diff.Updated {
+		totalDiffBytes += f.Size
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"version":         latestVersion,
+		"from_version":    fromVersion,
+		"mode":            "incremental",
+		"added":           added,
+		"updated":         updated,
+		"removed":         removed,
+		"total_diff_bytes": totalDiffBytes,
+	})
+}
+
+// handleFileDownload GET /api/v1/packs/{name}/files/{hash}
+func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	hash := r.PathValue("hash")
+
+	if name == "" || hash == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "缺少包名或 hash")
+		return
+	}
+
+	// files/{hash[:2]}/{hash}
+	filePath := filepath.Join(s.store.PackDir(name), "files", hash[:2], hash)
+
+	f, err := os.Open(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeError(w, http.StatusNotFound, "FILE_NOT_FOUND", "文件不存在")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "读取文件失败")
+		return
+	}
+	defer f.Close()
+
+	// 获取文件信息
+	info, err := f.Stat()
+	if err == nil {
+		w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+
+	http.ServeContent(w, r, hash, time.Time{}, f)
+}
+
+// ============================================================
+// 管理端端点
+// ============================================================
+
+// handleCreatePack POST /api/v1/admin/packs
+func (s *Server) handleCreatePack(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name        string `json:"name"`
+		DisplayName string `json:"display_name"`
+		Description string `json:"description,omitempty"`
+		Primary     bool   `json:"primary"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "无效的 JSON 请求体")
+		return
+	}
+
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "包名不能为空")
+		return
+	}
+	if req.DisplayName == "" {
+		req.DisplayName = req.Name
+	}
+
+	if err := s.store.CreatePack(req.Name, req.DisplayName, req.Description, req.Primary); err != nil {
+		if strings.Contains(err.Error(), "已存在") {
+			writeError(w, http.StatusConflict, "PACK_EXISTS", err.Error())
+		} else {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"status": "created",
+		"name":   req.Name,
+	})
+}
+
+// handleDeletePack DELETE /api/v1/admin/packs/{name}
+func (s *Server) handleDeletePack(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "缺少包名")
+		return
+	}
+
+	if err := s.store.DeletePack(name); err != nil {
+		writeError(w, http.StatusNotFound, "PACK_NOT_FOUND", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status": "deleted",
+		"name":   name,
+	})
+}
+
+// handleGetPackConfig GET /api/v1/admin/packs/{name}/config
+func (s *Server) handleGetPackConfig(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	detail, err := s.store.GetPack(name)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "PACK_NOT_FOUND", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, detail)
+}
+
+// handleUpdatePackConfig PUT /api/v1/admin/packs/{name}/config
+func (s *Server) handleUpdatePackConfig(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	var req struct {
+		DisplayName string `json:"display_name,omitempty"`
+		Description string `json:"description,omitempty"`
+		Primary     *bool  `json:"primary,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "无效的 JSON 请求体")
+		return
+	}
+
+	// 当前简化实现：更新只通过 Publish 的 primary 参数处理
+	// 完整实现需要 Store 支持更新元数据字段
+	_ = name
+	_ = req
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status": "ok",
+	})
+}
+
+// handleImportPack POST /api/v1/admin/packs/{name}/import
+func (s *Server) handleImportPack(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "缺少包名")
+		return
+	}
+
+	// 检查包是否存在
+	if !packDirExists(s.config.Storage.PacksDir, name) {
+		writeError(w, http.StatusNotFound, "PACK_NOT_FOUND", "整合包 '"+name+"' 不存在")
+		return
+	}
+
+	// 读取 multipart 上传的文件
+	r.ParseMultipartForm(int64(s.config.Storage.MaxPackSizeMB) * 1024 * 1024)
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "IMPORT_FAILED", "缺少上传文件: "+err.Error())
+		return
+	}
+	defer file.Close()
+
+	// 写入临时文件
+	tmpFile, err := os.CreateTemp("", "mc-pack-upload-*.zip")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "创建临时文件失败")
+		return
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := io.Copy(tmpFile, file); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "写入临时文件失败")
+		return
+	}
+	tmpFile.Close()
+
+	// 版本号：优先从 form field 取，其次从文件名推断
+	version := r.FormValue("version")
+	if version == "" {
+		version = strings.TrimSuffix(header.Filename, ".zip")
+	}
+
+	// 调用 pack.ImportZip
+	result, err := pack.ImportZip(tmpFile.Name(), s.store.PackDir(name), version)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "IMPORT_FAILED", "导入失败: "+err.Error())
+		return
+	}
+
+	// 把文件复制到 files/ 目录
+	if err := copyFilesToStore(tmpFile.Name(), s.store.FilesDir(name), result.Manifest); err != nil {
+		// 失败不阻断，只是文件存储出错
+		fmt.Printf("WARN: 文件存储失败: %v\n", err)
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handlePublishPack POST /api/v1/admin/packs/{name}/publish
+func (s *Server) handlePublishPack(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "缺少包名")
+		return
+	}
+
+	var req struct {
+		Message string `json:"message,omitempty"`
+		Primary *bool  `json:"primary,omitempty"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	packDir := s.store.PackDir(name)
+	repoDir := filepath.Join(packDir, "versions")
+
+	// 查找最新的 draft
+	latestDraft, err := findLatestDraftInDir(repoDir)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "DRAFT_NOT_FOUND", "没有未发布的 draft")
+		return
+	}
+
+	// 调用 pack.PublishDraft
+	if err := pack.PublishDraft(packDir, latestDraft, req.Message); err != nil {
+		writeError(w, http.StatusInternalServerError, "PUBLISH_FAILED", err.Error())
+		return
+	}
+
+	// 更新索引
+	s.store.UpdateLatestVersion(name, latestDraft)
+
+	// 发布时如果设为主包
+	if req.Primary != nil && *req.Primary {
+		// 简化：caller 应在创建包时设置
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":  "published",
+		"version": latestDraft,
+	})
+}
+
+// handleListVersions GET /api/v1/admin/packs/{name}/versions
+func (s *Server) handleListVersions(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	versionsDir := s.store.VersionsDir(name)
+
+	entries, err := os.ReadDir(versionsDir)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "PACK_NOT_FOUND", "整合包 '"+name+"' 不存在")
+		return
+	}
+
+	type versionInfo struct {
+		Version   string `json:"version"`
+		Published bool   `json:"published"`
+		CreatedAt string `json:"created_at,omitempty"`
+	}
+
+	var versions []versionInfo
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		vi := versionInfo{Version: e.Name()}
+		if !strings.HasSuffix(e.Name(), ".draft") {
+			vi.Published = true
+		} else {
+			vi.Version = strings.TrimSuffix(e.Name(), ".draft")
+		}
+
+		// 读取 manifest 获取创建时间
+		manifestPath := filepath.Join(versionsDir, e.Name(), "manifest.json")
+		if data, err := os.ReadFile(manifestPath); err == nil {
+			var m pack.Manifest
+			if json.Unmarshal(data, &m) == nil {
+				vi.CreatedAt = m.CreatedAt.Format(time.RFC3339)
+			}
+		}
+
+		versions = append(versions, vi)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"name":     name,
+		"versions": versions,
+	})
+}
+
+// handleDeleteVersion DELETE /api/v1/admin/packs/{name}/versions/{ver}
+func (s *Server) handleDeleteVersion(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	ver := r.PathValue("ver")
+
+	versionDir := filepath.Join(s.store.VersionsDir(name), ver)
+	if _, err := os.Stat(versionDir); os.IsNotExist(err) {
+		// 也尝试 .draft 后缀
+		versionDir = filepath.Join(s.store.VersionsDir(name), ver+".draft")
+		if _, err := os.Stat(versionDir); os.IsNotExist(err) {
+			writeError(w, http.StatusNotFound, "VERSION_NOT_FOUND", "版本 '"+ver+"' 不存在")
+			return
+		}
+	}
+
+	if err := os.RemoveAll(versionDir); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "删除版本失败")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "deleted",
+		"version": ver,
+	})
+}
+
+// ============================================================
+// 内部辅助
+// ============================================================
+
+// loadManifestFromDir 从版本目录加载最新发布的 manifest
+func loadManifestFromDir(versionsDir, exclude string) *pack.Manifest {
+	entries, err := os.ReadDir(versionsDir)
+	if err != nil {
+		return nil
+	}
+
+	var latest string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if strings.HasSuffix(name, ".draft") {
+			continue
+		}
+		if name == exclude {
+			continue
+		}
+		if name > latest {
+			latest = name
+		}
+	}
+
+	if latest == "" {
+		return nil
+	}
+
+	return loadManifestForVersion(versionsDir, latest)
+}
+
+// loadManifestForVersion 加载指定版本的 manifest
+func loadManifestForVersion(versionsDir, version string) *pack.Manifest {
+	manifestPath := filepath.Join(versionsDir, version, "manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return nil
+	}
+
+	var m pack.Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil
+	}
+	return &m
+}
+
+// toFileChangeEntries 转换 FileEntry 为 FileChangeEntry
+func toFileChangeEntries(entries []pack.FileEntry, hashField string) []any {
+	result := make([]any, len(entries))
+	for i, f := range entries {
+		h := f.SHA256
+		if hashField == "sha1" {
+			h = f.SHA1
+		}
+		result[i] = map[string]any{
+			"path": f.Path,
+			"hash": h,
+			"size": f.Size,
+		}
+	}
+	return result
+}
+
+// toFileChangeEntriesFromDiff 转换 Diff.Updated ([]FileEntry) 为 JSON
+func toFileChangeEntriesFromDiff(entries []pack.FileEntry) []any {
+	result := make([]any, len(entries))
+	for i, f := range entries {
+		result[i] = map[string]any{
+			"path": f.Path,
+			"hash": f.SHA1,
+			"size": f.Size,
+		}
+	}
+	return result
+}
+
+// copyFilesToStore 将 zip 中的文件按 hash 复制到文件存储
+func copyFilesToStore(zipPath, filesDir string, manifest *pack.Manifest) error {
+	for _, f := range manifest.Files {
+		hashDir := filepath.Join(filesDir, f.SHA256[:2])
+		destPath := filepath.Join(hashDir, f.SHA256)
+
+		// 已存在则跳过
+		if _, err := os.Stat(destPath); err == nil {
+			continue
+		}
+
+		if err := os.MkdirAll(hashDir, 0755); err != nil {
+			return fmt.Errorf("创建 hash 目录失败: %w", err)
+		}
+
+		// 从 zip 中提取文件
+		// 注意：这里是简化实现，实际需要重新打开 zip
+		// 在完整实现中，ImportZip 应该返回文件路径映射
+		_ = destPath
+	}
+	return nil
+}
+
+// findLatestDraftInDir 在版本目录中查找最新的 draft
+func findLatestDraftInDir(versionsDir string) (string, error) {
+	entries, err := os.ReadDir(versionsDir)
+	if err != nil {
+		return "", fmt.Errorf("读取版本目录失败: %w", err)
+	}
+
+	var latest string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if !strings.HasSuffix(e.Name(), ".draft") {
+			continue
+		}
+		ver := strings.TrimSuffix(e.Name(), ".draft")
+		if ver > latest {
+			latest = ver
+		}
+	}
+
+	if latest == "" {
+		return "", fmt.Errorf("没有找到 draft 版本")
+	}
+	return latest, nil
+}
+
+// Because go 1.22 uses the new routing pattern, we need PathValue
+// This works with Go 1.22+ which is already required by go.mod

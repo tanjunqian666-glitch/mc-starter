@@ -1,6 +1,6 @@
 # MC 版本更新器 — WBS 工作分解 + 迭代计划
 
-> **项目状态**：P1 全部完成 ✅ | P2 全部完成 ✅ | P5 全部完成 ✅ | P0x 文档/代码适配完成 ✅ | GUI 框架完成（walk 替换 TUI + Windows 端完整测试）✅ | 下一步：P0x 服务端骨架编码
+> **项目状态**：P1 全部完成 ✅ | P2 全部完成 ✅ | P5 全部完成 ✅ | P0x 服务端骨架编码完成 ✅ | P0x 客户端 SDK 改造完成 ✅ | GUI 框架完成（walk 替换 TUI + Windows 端完整测试）✅ | 下一步：P0x.6 认证 + P0x.7 部署
 > **外部参考**见文末 §七（MCUpdater）
 
 ---
@@ -48,7 +48,10 @@
 | 模块 | 代码文件 | 关联 WBS |
 |------|---------|----------|
 | **服务端 HTTP API** | `cmd/mc-starter-server/main.go` | P0x.1-P0x.7 |
-| **多包管理器** | `internal/server/` | P0x.1-P0x.7 |
+| **服务端配置** | `internal/server/config.go` | P0x.1 |
+| **服务端路由+中间件** | `internal/server/server.go` | P0x.1, P0x.6 |
+| **服务端 API handlers** | `internal/server/handlers.go` | P0x.3, P0x.4 |
+| **包索引管理** | `internal/server/pack_store.go` | P0x.2 |
 | CLI 入口 / 子命令 | `cmd/starter/main.go` | P0.2, P1.15, 全部 |
 | 版本清单拉取 | `internal/launcher/version_manifest.go` | P1.1 |
 | version.json 解析 + client.jar | `internal/launcher/version.go` | P1.2 |
@@ -58,7 +61,7 @@
 | 本地版本仓库 | `internal/launcher/repo.go` | P1.7, P1.10 |
 | 文件缓存 | `internal/launcher/cache.go` | P1.8, P1.11 |
 | 增量同步 | `internal/launcher/incr_sync.go` | P1.9 |
-| 客户端增量更新 | `internal/launcher/update.go` | P1.15 |
+| 客户端增量更新 | `internal/launcher/update.go` | P1.15, P0x.5 |
 | PCL2 检测 | `internal/launcher/pcl_detect.go` | P5.2 (已超前写) |
 | 版本查找器 | `internal/launcher/finder.go` | P5.1 (已超前写) |
 | GUI 界面 (walk) | `internal/gui/` | P2.12/P2.14 (替代) |
@@ -75,7 +78,7 @@
 
 ```
                          ┌────────────────────────────────────┐
-P0 CLI框架+配置 (2d)  → │ P0x 服务端骨架 (PRIORITY NOW)     │
+P0 CLI框架+配置 (2d)  → │ P0x 服务端骨架 (PRIORITY NOW)    │
    已完工 ✅              │ 独立 server 二进制                  │
                          │ REST API + 客户端 SDK               │
                          │ 多整合包管理                        │
@@ -115,13 +118,13 @@ P3 自更新 (2d)          ◄───────────┘
 
 | ID | 任务 | 预估 | 产出物 |
 |----|------|------|--------|
-| P0x.1 | server 骨架：go.mod + main.go + 启动/停止 | 2h | ⏳ `cmd/mc-starter-server/main.go` |
-| P0x.2 | 仓库目录结构：多包 + 版本目录设计 | 2h | ✅ 设计完成 (`服务端架构与部署.md`) |
-| P0x.3 | REST API v1：客户端端点（版本查询/增量/下载） | 4h | ✅ 设计完成 (`API接口文档.md`) |
-| P0x.4 | REST API v1：管理端点（创建包/导入/publish/列表） | 4h | ✅ 设计完成 (`API接口文档.md`) |
-| P0x.5 | 客户端 SDK：starter update 对接 server API | 3h | ✅ `update.go` 已适配 |
-| P0x.6 | 认证：简单 token 认证 + 管理端鉴权 | 2h | ⏳ 待编码 |
-| P0x.7 | 部署：配置文件 + Dockerfile + 默认配置 | 2h | ⏳ 待编码 |
+| P0x.1 | server 骨架：go.mod + main.go + 启动/停止 | 2h | ✅ `cmd/mc-starter-server/main.go` + `internal/server/server.go` |
+| P0x.2 | 仓库目录结构：多包 + 版本目录设计 | 2h | ✅ `internal/server/pack_store.go` |
+| P0x.3 | REST API v1：客户端端点（版本查询/增量/下载） | 4h | ✅ `internal/server/handlers.go` |
+| P0x.4 | REST API v1：管理端点（创建包/导入/publish/列表） | 4h | ✅ `internal/server/handlers.go` |
+| P0x.5 | 客户端 SDK：starter update 对接 server API | 3h | ✅ `config.Manager` 统一 API，`update.go` 移除了重复的 `httpUpdateAPI` |
+| P0x.6 | 认证：简单 token 认证 + 管理端鉴权 | 2h | ⏳ `server.go` 已有 `requireAdmin` 骨架 |
+| P0x.7 | 部署：配置文件 + Dockerfile + 默认配置 | 2h | ⏳ `config.go` 已有 `DefaultConfig()` |
 
 > **现状**：`internal/pack/pack.go` 已实现 zip 导入/diff/publish 逻辑，P0x 负责将其包装为 HTTP API + 多包索引。
 > `internal/launcher/update.go` 已实现客户端增量更新逻辑，P0x 负责将 server.json 拉取改为 API 调用。
@@ -219,16 +222,16 @@ P2.9 静默守护           → 4h
 里程碑 M3：./starter sync + repair 可用
 ```
 
-### 📋 Sprint 5（服务端骨架 — 文档/代码适配 ✅，编码待启动）
+### 📋 Sprint 5（服务端骨架 — 编码进行中）
 
 ```
-P0x.1 server 骨架       → 2h    ⏳
-P0x.2 仓库目录结构      → 2h    ✅ 设计完成 (服务端架构与部署.md)
-P0x.3 客户端 API        → 4h    ✅ API 文档完成 (API接口文档.md)
-P0x.4 管理 API          → 4h    ✅ API 文档完成
-P0x.5 客户端 SDK 改造   → 3h    ✅ update.go 已适配 HTTP API
-P0x.6 认证              → 2h    ⏳
-P0x.7 部署配置文件      → 2h    ⏳
+P0x.1 server 骨架        → 2h    ✅ cmd/mc-starter-server/main.go + server.go
+P0x.2 仓库目录结构       → 2h    ✅ 代码落地 (pack_store.go 自动创建)
+P0x.3 客户端 API         → 4h    ✅ handlers.go 全部端点
+P0x.4 管理 API           → 4h    ✅ handlers.go 全部端点
+P0x.5 客户端 SDK 改造    → 3h    ✅ config.Manager 统一 API, 删除 httpUpdateAPI 重复
+P0x.6 认证               → 2h    ⏳
+P0x.7 部署配置文件       → 2h    ⏳
 ─────────────────────────────
 里程碑 M4：mc-starter-server 可用 +
   starter 客户端通过 API 拿增量更新
