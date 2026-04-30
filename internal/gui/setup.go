@@ -98,7 +98,7 @@ func runSetupWizard(a *App) {
 			Label{AssignTo: &stepLabel, Text: stepLabels[0], Font: Font{PointSize: 10, Bold: true}},
 			VSpacer{Size: 4},
 			// 描述
-			Label{AssignTo: &descLabel, Text: stepDesc[0], Font: Font{PointSize: 8}},
+			Label{AssignTo: &descLabel, Text: stepDesc[0], Font: Font{PointSize: 9}},
 			VSpacer{Size: 8},
 
 			// 步骤页面容器
@@ -117,7 +117,7 @@ func runSetupWizard(a *App) {
 			VSpacer{Size: 4},
 
 			// step 指示器
-			Label{Text: "1 / 3", Font: Font{PointSize: 8}},
+			Label{Text: "1 / 3", Font: Font{PointSize: 9}},
 
 			// 按钮行
 			Composite{

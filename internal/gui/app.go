@@ -56,6 +56,9 @@ type App struct {
 
 // Run 启动 GUI
 func Run(cfgDir string) error {
+	// 启用 DPI 感知，确保高分辨率下字体不模糊
+	walk.SetDPIAware(true)
+
 	app := &App{
 		cfgDir:     cfgDir,
 		cfg:        config.New(cfgDir),
@@ -170,7 +173,7 @@ func (a *App) buildUI() *walk.MainWindow {
 			Label{
 				AssignTo: &a.verBar,
 				Text:     "",
-				Font:     Font{PointSize: 8},
+				Font: Font{PointSize: 9},
 				TextColor: walk.RGB(100, 100, 100),
 			},
 			// 状态

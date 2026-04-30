@@ -116,7 +116,7 @@ func showSettings(a *App) {
 				Title:  "副版本",
 				Layout: VBox{},
 				Children: []Widget{
-					Label{Text: "勾选启用副版本（独立的完整整合包）:", Font: Font{PointSize: 8}},
+					Label{Text: "勾选启用副版本（独立的完整整合包）:", Font: Font{PointSize: 9}},
 					packList(a),
 				},
 			},
