@@ -123,7 +123,7 @@ go build -o mc-starter-server ./cmd/mc-starter-server/
 | P3 Self-update (multi-channel + rollback) | ✅ Done |
 | P6 Channel system (multi-channel + optional install) | ✅ Done |
 | GUI (walk native Windows) | ✅ Windows tested |
-| P5 Launcher awareness (detect + dir identify + integration) | ✅ 10/14 sub-tasks (GUI parts pending VM) |
+| P5 Launcher awareness (detect + dir identify + integration) | ✅ Done |
 
 ## License
 
