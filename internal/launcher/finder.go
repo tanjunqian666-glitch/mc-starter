@@ -151,8 +151,8 @@ func (f *VersionFinder) findViaFallback(remaining map[string]bool, results map[s
 	var mcDirs []string
 
 	// 1. 优先用 LocalConfig 里记录的路径
-	if f.localCfg != nil && f.localCfg.InstallPath != "" {
-		mcDirs = append(mcDirs, f.localCfg.InstallPath)
+	if f.localCfg != nil && f.localCfg.MinecraftDir != "" {
+		mcDirs = append(mcDirs, f.localCfg.MinecraftDir)
 	}
 
 	// 2. 默认路径

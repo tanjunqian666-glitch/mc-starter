@@ -28,7 +28,7 @@ func TestFindVersionDir(t *testing.T) {
 
 	// 用 FindVersionDir 查找
 	cfg := &model.LocalConfig{
-		InstallPath: mcDir,
+		MinecraftDir: mcDir,
 	}
 	
 	got := FindVersionDir(cfg, "my-test-pack-v1")
@@ -60,7 +60,7 @@ func TestFindManagedVersions(t *testing.T) {
 	os.MkdirAll(v2Dir, 0755)
 	os.WriteFile(filepath.Join(v2Dir, "version.json"), []byte("{}"), 0644)
 
-	finder := NewVersionFinder(&model.LocalConfig{InstallPath: mcDir})
+	finder := NewVersionFinder(&model.LocalConfig{MinecraftDir: mcDir})
 
 	// 查找 pack-v1 和 pack-v2
 	results := finder.FindManagedVersions([]string{"pack-v1", "pack-v2"})
@@ -169,7 +169,7 @@ func TestKnownLauncherFallback(t *testing.T) {
 	os.WriteFile(filepath.Join(vDir, "version.json"), []byte("{}"), 0644)
 
 	finder := NewVersionFinder(&model.LocalConfig{
-		InstallPath: mcDir,
+		MinecraftDir: mcDir,
 		Launcher:    "auto",
 	})
 
