@@ -520,7 +520,7 @@ func copyFile(src, dst string) error {
 	}
 	defer srcFile.Close()
 
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	if dirErr := os.MkdirAll(filepath.Dir(dst), 0755); dirErr != nil {
 		return fmt.Errorf("创建目标目录 %s 失败: %w", filepath.Dir(dst), err)
 	}
 

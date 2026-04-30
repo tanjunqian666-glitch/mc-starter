@@ -626,7 +626,7 @@ func extractZipFile(f *zip.File, destPath string) error {
 	}
 	defer rc.Close()
 
-	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+	if dirErr := os.MkdirAll(filepath.Dir(destPath), 0755); dirErr != nil {
 		return err
 	}
 

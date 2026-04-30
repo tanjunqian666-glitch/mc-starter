@@ -120,13 +120,13 @@ func (d *Detector) Start() error {
 
 			// 监听 crash-reports/ 目录
 			crashDir := filepath.Join(d.mcDir, "crash-reports")
-			if err := d.ensureAndWatch(crashDir); err != nil {
-				logger.Warn("崩溃检测器: 无法监听 crash-reports/: %v", err)
+			if watchErr := d.ensureAndWatch(crashDir); watchErr != nil {
+				logger.Warn("崩溃检测器: 无法监听 crash-reports/: %v", watchErr)
 			}
 
 			// 监听 .minecraft 根目录（hs_err_pid*.log）
-			if err := d.watcher.Add(d.mcDir); err != nil {
-				logger.Warn("崩溃检测器: 无法监听 .minecraft 根目录: %v", err)
+			if watchErr := d.watcher.Add(d.mcDir); watchErr != nil {
+				logger.Warn("崩溃检测器: 无法监听 .minecraft 根目录: %v", watchErr)
 			}
 
 			go d.eventLoop()

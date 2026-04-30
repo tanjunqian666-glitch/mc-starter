@@ -786,7 +786,7 @@ func runRepair(args []string, cfgDir string) {
 		}
 		installPath := mg.GetPackWorkDir(mcDir, targetPack)
 
-		if _, err := os.Stat(installPath); os.IsNotExist(err) {
+		if _, statErr := os.Stat(installPath); os.IsNotExist(statErr) {
 			fmt.Fprintf(os.Stderr, "包目录不存在: %s\n", installPath)
 			return
 		}
@@ -796,7 +796,7 @@ func runRepair(args []string, cfgDir string) {
 			fmt.Printf("\n=== 修复: %s ===\n", targetPack)
 		}
 
-		result, err := repair.Repair(installPath, rCfg)
+		result, err = repair.Repair(installPath, rCfg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "修复失败: %v\n", err)
 			return
@@ -820,7 +820,7 @@ func runRepair(args []string, cfgDir string) {
 	}
 	installPath := mg.GetPackWorkDir(mcDir, primaryName)
 
-	if _, err := os.Stat(installPath); os.IsNotExist(err) {
+	if _, statErr := os.Stat(installPath); os.IsNotExist(statErr) {
 		fmt.Fprintf(os.Stderr, ".minecraft 目录不存在: %s\n", installPath)
 		return
 	}
@@ -907,7 +907,7 @@ func handleUpdateMulti(cfgDir string, verbose, dryRun bool, packName string, upd
 
 		updater := launcher.NewUpdater(cfgDir, mcDir)
 		fmt.Printf("\n=== 更新: %s ===\n", packName)
-		result, err := updater.UpdatePack(serverURL, packName, &state, false)
+		result, err = updater.UpdatePack(serverURL, packName, &state, false)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "更新失败: %v\n", err)
 			return
@@ -924,8 +924,8 @@ func handleUpdateMulti(cfgDir string, verbose, dryRun bool, packName string, upd
 	fmt.Println("\n=== 检查更新 ===")
 
 	// 先 ping
-	if err := mg.Ping(serverURL); err != nil {
-		fmt.Fprintf(os.Stderr, "无法连接服务端: %v\n", err)
+	if pingErr := mg.Ping(serverURL); pingErr != nil {
+		fmt.Fprintf(os.Stderr, "无法连接服务端: %v\n", pingErr)
 		return
 	}
 
@@ -1401,7 +1401,7 @@ func handleFabric(args []string) {
 
 		// 检查 MC 原版是否已安装
 		mcVersionJSON := filepath.Join(versionsDir, mcVersion, fmt.Sprintf("%s.json", mcVersion))
-		if _, err := os.Stat(mcVersionJSON); os.IsNotExist(err) {
+		if _, statErr := os.Stat(mcVersionJSON); os.IsNotExist(statErr) {
 			fmt.Printf("[!] MC %s 原版未安装\n", mcVersion)
 			fmt.Println("建议先执行: starter sync")
 			fmt.Println("（或手动将 .minecraft/versions/ 复制过来）")
