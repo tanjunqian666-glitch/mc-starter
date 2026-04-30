@@ -4,8 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -2001,7 +2003,6 @@ func handleChannelList(args []string, mg *config.Manager, localCfg *model.LocalC
 		}
 
 		for chName, chState := range state.Channels {
-			requiredMark := ""
 			verStr := chState.Version
 			if verStr == "" {
 				verStr = "(未安装)"
