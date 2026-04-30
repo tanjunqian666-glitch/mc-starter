@@ -84,7 +84,6 @@ curl -X POST http://localhost:8443/api/v1/admin/packs/main-pack/publish
 | `starter daemon` | 崩溃守护（后台监控+日志+自动修复） |
 | `starter backup` | 快照管理（创建/回滚/删除） |
 | `starter cache` | 缓存管理 |
-| `starter fabric install` | Fabric 安装器下载与组装 |
 | `starter pack` | 服务端打包（import/publish/diff） |
 | `starter pcl` | PCL2 检测/路径设置 |
 | `starter init / check` | 初始化/检查 |

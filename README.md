@@ -72,7 +72,6 @@ Admin:                          Player:
 | `starter daemon` | Crash daemon (background monitor + auto-repair) |
 | `starter backup` | Snapshot management (create/rollback/delete) |
 | `starter cache` | Cache management |
-| `starter fabric install` | Fabric installer download & assembly |
 | `starter pack` | Server-side pack management (import/publish/diff) |
 | `starter pcl` | PCL2 detection / path config |
 | `starter init / check` | Init config / check integrity |
@@ -126,6 +125,8 @@ go build -o mc-starter-server ./cmd/mc-starter-server/
 | P5 Launcher awareness (detect + dir identify + integration) | ✅ Done |
 | S10 Full integration: sync + loader + pack update | ✅ Code complete, run merge pending |
 | Code audit 2026-05-02: shadowing fix, var ref table | ✅ Complete |
+| Loader version architecture: server-specified versions only | ✅ Complete |
+| Modrinth index auto-detect: mc_version + loader from dependencies | ✅ Complete |
 
 ## License
 
