@@ -20,65 +20,98 @@ import (
 
 var version = "dev"
 
-func main() {
-	fs := flag.NewFlagSet("starter", flag.ExitOnError)
-	cfgDir := fs.String("config", "./config", "配置目录")
-	verbose := fs.Bool("verbose", false, "详细日志")
-	verboseShort := fs.Bool("v", false, "详细日志")
-	headless := fs.Bool("headless", false, "静默模式")
-	dryRun := fs.Bool("dry-run", false, "仅检查不下载")
+// parseGlobalFlags 从 os.Args 中提前提取 --config/--verbose/--dry-run 等全局 flag，
+// 并返回剥离后的子命令参数列表（os.Args 风格，argv[0] 为程序名）。
+// 原理：在标准 flag 解析前手动探测，避免子命令 switch 前无法读取全局选项。
+func parseGlobalFlags() (cfgDir string, verbose, headless, dryRun bool, remainingArgs []string) {
+	cfgDir = "./config"
+	remainingArgs = os.Args
 
-	if len(os.Args) < 2 {
+	// 从 os.Args[1:] 中扫描全局 flag 并剥离
+	var filtered []string
+	filtered = append(filtered, os.Args[0]) // argv[0] 保留
+	skipNext := false
+	for i, a := range os.Args[1:] {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		switch a {
+		case "--config":
+			if i+2 < len(os.Args) {
+				cfgDir = os.Args[i+2]
+				skipNext = true
+			}
+		case "-c":
+			if i+2 < len(os.Args) {
+				cfgDir = os.Args[i+2]
+				skipNext = true
+			}
+		case "--verbose", "-v":
+			verbose = true
+		case "--headless":
+			headless = true
+		case "--dry-run":
+			dryRun = true
+		default:
+			filtered = append(filtered, a)
+		}
+	}
+	remainingArgs = filtered
+	return
+}
+
+func main() {
+	cfgDir, verbose, headless, dryRun, args := parseGlobalFlags()
+
+	if len(args) < 2 {
 		// 无参数: 双击场景 → 启动 GUI
-		if err := gui.Run("./config"); err != nil {
+		if err := gui.Run(cfgDir); err != nil {
 			fmt.Fprintf(os.Stderr, "GUI 错误: %v\n", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	cmd := os.Args[1]
+	cmd := args[1]
+	subArgs := args[2:]
 
 	switch cmd {
 	case "run":
-		fs.Parse(os.Args[2:])
-		run(*cfgDir, *verbose || *verboseShort, *headless, *dryRun)
+		run(cfgDir, verbose, headless, dryRun)
 	case "init":
-		fs.Parse(os.Args[2:])
-		initialize(*cfgDir)
+		initialize(cfgDir)
 	case "check":
-		fs.Parse(os.Args[2:])
-		check(*cfgDir, *verbose || *verboseShort)
+		check(cfgDir, verbose)
 	case "sync":
-		fs.Parse(os.Args[2:])
-		sync(*cfgDir, *verbose || *verboseShort, *dryRun)
+		sync(cfgDir, verbose, dryRun)
 	case "repair":
-		runRepair(os.Args[2:], *cfgDir)
+		runRepair(subArgs, cfgDir)
 	case "update":
 		// update 子命令支持 --pack <name> 和 --all
 		updateFS := flag.NewFlagSet("update", flag.ExitOnError)
 		updatePack := updateFS.String("pack", "", "指定要更新的包名")
 		updateAll := updateFS.Bool("all", false, "更新所有已启用的包")
-		updateFS.Parse(os.Args[2:])
+		updateFS.Parse(subArgs)
 		if *updatePack != "" {
-			handleUpdateMulti(*cfgDir, *verbose || *verboseShort, *dryRun, *updatePack, false)
+			handleUpdateMulti(cfgDir, verbose, dryRun, *updatePack, false)
 		} else if *updateAll {
-			handleUpdateMulti(*cfgDir, *verbose || *verboseShort, *dryRun, "", true)
+			handleUpdateMulti(cfgDir, verbose, dryRun, "", true)
 		} else {
-			handleUpdate(*cfgDir, *verbose || *verboseShort, *dryRun)
+			handleUpdate(cfgDir, verbose, dryRun)
 		}
 	case "backup":
-		handleBackup(os.Args[2:])
+		handleBackup(subArgs)
 	case "cache":
-		handleCache(os.Args[2:])
+		handleCache(subArgs)
 	case "pack":
-		handlePack(os.Args[2:])
+		handlePack(subArgs)
 	case "fabric":
-		handleFabric(os.Args[2:])
+		handleFabric(subArgs)
 	case "pcl":
-		handlePCL(os.Args[2:])
+		handlePCL(subArgs)
 	case "daemon":
-		runDaemon(os.Args[2:], *cfgDir)
+		runDaemon(subArgs, cfgDir)
 	case "version":
 		fmt.Printf("mc-starter %s\n", version)
 	case "help", "--help", "-h":
