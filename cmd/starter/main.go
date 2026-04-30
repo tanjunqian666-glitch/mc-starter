@@ -796,7 +796,7 @@ func runRepair(args []string, cfgDir string) {
 			fmt.Printf("\n=== 修复: %s ===\n", targetPack)
 		}
 
-		result, err = repair.Repair(installPath, rCfg)
+		result, err := repair.Repair(installPath, rCfg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "修复失败: %v\n", err)
 			return
@@ -907,7 +907,7 @@ func handleUpdateMulti(cfgDir string, verbose, dryRun bool, packName string, upd
 
 		updater := launcher.NewUpdater(cfgDir, mcDir)
 		fmt.Printf("\n=== 更新: %s ===\n", packName)
-		result, err = updater.UpdatePack(serverURL, packName, &state, false)
+		result, err := updater.UpdatePack(serverURL, packName, &state, false)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "更新失败: %v\n", err)
 			return
