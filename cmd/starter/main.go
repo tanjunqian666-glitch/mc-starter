@@ -117,8 +117,7 @@ func main() {
 		handleCache(subArgs)
 	case "pack":
 		handlePack(subArgs)
-	case "fabric":
-		handleFabric(subArgs)
+	// case "fabric": // 已移除：loader 安装由 EnsureVersion 在 run/update 流程中自动完成
 	case "pcl":
 		handlePCL(subArgs)
 	case "daemon":
@@ -159,8 +158,6 @@ mc-starter — Windows 版 Minecraft 版本管理 & 整合包更新器
     stats          显示缓存统计
     clean [--dry-run] [--min-ref <n>]  清理缓存
     prune [--dry-run]  清理 orphaned 缓存
-  starter fabric   安装 Fabric loader
-    install <mcVer> [--loader <ver>] [--mirror]
   starter pcl      操作 PCL2
     detect         检测 PCL2.exe 位置
     path <path>    设置 PCL2 路径
@@ -1114,7 +1111,7 @@ func printRepairResult(result *repair.RepairResult, packName string) {
 		}
 
 		if result.Action == repair.ActionLoaderOnly {
-			fmt.Printf("\n提示: 请运行 'starter fabric install <mcVer>' 重新安装 %s 的 Loader\n", packName)
+			fmt.Printf("\n提示: 运行 'starter run' 自动安装 %s 的 Loader\n", packName)
 		} else {
 			fmt.Printf("\n提示: 请运行 'starter update --pack %s' 重新下载模组和配置\n", packName)
 		}
@@ -1738,119 +1735,6 @@ func runDaemon(args []string, cfgDir string) {
 	signal.Notify(sigCh, os.Interrupt)
 	<-sigCh
 	fmt.Println("\n守护已停止")
-}
-
-// handleFabric 处理 fabric 子命令
-func handleFabric(args []string) {
-	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		fmt.Println(strings.TrimSpace(`
-用法:
-  starter fabric install <mc版本> [--loader <版本>] [--mirror]
-
-示例:
-  starter fabric install 1.20.4          自动选择最新稳定 loader
-  starter fabric install 1.20.4 --loader 0.19.2  指定 loader 版本
-  starter fabric install 1.20.4 --mirror         启用镜像加速
-		`))
-		return
-	}
-
-	switch args[0] {
-	case "install":
-		if len(args) < 2 {
-			fmt.Println("用法: starter fabric install <mc版本> [--loader <版本>] [--mirror]")
-			return
-		}
-
-		mcVersion := args[1]
-		var loaderVer string
-		useMirror := false
-
-		for i := 2; i < len(args); i++ {
-			switch args[i] {
-			case "--loader":
-				if i+1 < len(args) {
-					loaderVer = args[i+1]
-					i++
-				}
-			case "--mirror":
-				useMirror = true
-			}
-		}
-
-		// 确定目录
-		cfgDir := "config"
-		mg := config.New(cfgDir)
-		localCfg, err := mg.LoadLocal()
-		if err != nil {
-			fmt.Printf("[!] 未找到 local.json，使用默认路径\n")
-		}
-
-		versionsDir := ".minecraft/versions"
-		librariesDir := "libraries"
-		if localCfg != nil {
-			mcDir := localCfg.GetMinecraftDir("")
-			if mcDir != "" {
-				versionsDir = filepath.Join(mcDir, "versions")
-			}
-		}
-		// libraries 通常放在 config/libraries 或 .minecraft/libraries
-		librariesDir = filepath.Join(cfgDir, "libraries")
-
-		logger.Init(false)
-		logger.Info("Fabric: 安装 mc=%s, loader=%s, mirror=%v", mcVersion, loaderVer, useMirror)
-
-		// 说明：安装流程分两步
-		// 1. MC 本体（如果未安装）
-		// 2. Fabric loader
-		fmt.Printf("\n=== Fabric 安装: %s ===\n", mcVersion)
-
-		// 检查 MC 原版是否已安装
-		mcVersionJSON := filepath.Join(versionsDir, mcVersion, fmt.Sprintf("%s.json", mcVersion))
-		if _, statErr := os.Stat(mcVersionJSON); os.IsNotExist(statErr) {
-			fmt.Printf("[!] MC %s 原版未安装\n", mcVersion)
-			fmt.Println("建议先执行: starter sync")
-			fmt.Println("（或手动将 .minecraft/versions/ 复制过来）")
-			// 不阻断，Fabric 安装器只写 profile JSON 和 libraries
-			// MC 版本缺失不影响 Fabric 自己的文件安装
-			fmt.Println("[*] 继续安装 Fabric loader（MC 本体需另行同步）")
-		} else {
-			fmt.Printf("[✓] MC %s 原版已安装\n", mcVersion)
-		}
-
-		installer := launcher.NewFabricInstaller(mcVersion, loaderVer, versionsDir, librariesDir)
-		if useMirror {
-			installer.SetMirror(true)
-		}
-
-		result, err := installer.Install()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "\n[✗] Fabric 安装失败: %v\n", err)
-			return
-		}
-
-		fmt.Printf("\n[✓] Fabric 安装完成:\n")
-		fmt.Printf("    版本 ID:   %s\n", result.VersionID)
-		fmt.Printf("    Loader:    %s\n", result.LoaderVersion)
-		fmt.Printf("    Libraries: %d 下载, %d 已存在\n", result.Downloaded, result.Skipped)
-
-		// 验证安装
-		missing, verifyErr := installer.VerifyInstallation(result.VersionID)
-		if verifyErr != nil {
-			fmt.Printf("[!] 验证异常: %v\n", verifyErr)
-		} else if len(missing) > 0 {
-			fmt.Printf("[!] %d 个文件缺失:\n", len(missing))
-			for _, m := range missing {
-				fmt.Printf("    - %s\n", m)
-			}
-		} else {
-			fmt.Printf("[✓] 安装完整性验证通过\n")
-		}
-
-	default:
-		fmt.Printf("fabric: unknown subcommand %s\n", args[0])
-		fmt.Println("可用: install")
-	}
 }
 
 // handlePCL 处理 pcl 子命令
