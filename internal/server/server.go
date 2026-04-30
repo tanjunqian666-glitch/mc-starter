@@ -63,12 +63,12 @@ func (s *Server) Start() error {
 
 // registerRoutes 注册所有路由
 func (s *Server) registerRoutes(mux *http.ServeMux) {
-	// 客户端端点
-	mux.HandleFunc("GET /api/v1/ping", s.handlePing)
-	mux.HandleFunc("GET /api/v1/packs", s.handleListPacks)
-	mux.HandleFunc("GET /api/v1/packs/{name}", s.handleGetPack)
-	mux.HandleFunc("GET /api/v1/packs/{name}/update", s.handleGetUpdate)
-	mux.HandleFunc("GET /api/v1/packs/{name}/files/{hash}", s.handleFileDownload)
+	// 客户端端点（可选 token 认证）
+	mux.HandleFunc("GET /api/v1/ping", s.requireClientToken(s.handlePing))
+	mux.HandleFunc("GET /api/v1/packs", s.requireClientToken(s.handleListPacks))
+	mux.HandleFunc("GET /api/v1/packs/{name}", s.requireClientToken(s.handleGetPack))
+	mux.HandleFunc("GET /api/v1/packs/{name}/update", s.requireClientToken(s.handleGetUpdate))
+	mux.HandleFunc("GET /api/v1/packs/{name}/files/{hash}", s.requireClientToken(s.handleFileDownload))
 
 	// 管理端端点（需认证）
 	mux.HandleFunc("POST /api/v1/admin/packs", s.requireAdmin(s.handleCreatePack))
@@ -113,6 +113,31 @@ func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// 常量时间比较防时序攻击
+		if subtle.ConstantTimeCompare([]byte(token), []byte(s.config.Auth.AdminToken)) != 1 {
+			writeError(w, http.StatusForbidden, "FORBIDDEN", "token 无效")
+			return
+		}
+
+		next(w, r)
+	}
+}
+
+// requireClientToken 客户端端点认证中间件
+// 仅在配置中启用 ClientRequireToken 时生效
+func (s *Server) requireClientToken(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.config.Auth.Enabled || !s.config.Auth.ClientRequireToken {
+			next(w, r)
+			return
+		}
+
+		token := extractBearerToken(r)
+		if token == "" {
+			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "缺少客户端 token")
+			return
+		}
+
+		// 客户端 token 与 admin token 相同（身份一致）
 		if subtle.ConstantTimeCompare([]byte(token), []byte(s.config.Auth.AdminToken)) != 1 {
 			writeError(w, http.StatusForbidden, "FORBIDDEN", "token 无效")
 			return

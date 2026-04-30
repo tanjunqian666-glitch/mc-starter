@@ -1,0 +1,39 @@
+# mc-starter-server 配置示例
+# 复制为 server.yml 并修改 admin_token 后启动
+#
+# 快速开始:
+#   cp server.example.yml server.yml
+#   # 编辑 server.yml 修改 admin_token
+#   mc-starter-server start
+
+server:
+  # 监听地址 (0.0.0.0 = 所有网络接口)
+  host: "0.0.0.0"
+  # 监听端口 (HTTP: 8443, HTTPS: 443 常见)
+  port: 8443
+  # TLS 配置 (生产环境建议启用)
+  tls_enabled: false
+  tls_cert: ""    # 如启用 TLS，填写 cert 路径
+  tls_key: ""     # 如启用 TLS，填写 key 路径
+
+auth:
+  # 启用认证后，管理端点需要 Bearer token
+  enabled: true
+  # 管理员 Token - ⚠️ 必改！生产环境使用强密码
+  admin_token: "change-me-please"
+  # 客户端读接口是否需要 token
+  client_require_token: false
+
+storage:
+  # 运行时数据目录 (索引、日志等)
+  data_dir: "./data"
+  # 整合包存储根目录
+  packs_dir: "./packs"
+  # 文件存储方式 (当前仅支持 "local")
+  file_storage: "local"
+  # 单次上传最大大小 (MB)
+  max_pack_size_mb: 1024
+
+packs:
+  # 默认主包名称 (首次 init 时设置)
+  default_primary: ""

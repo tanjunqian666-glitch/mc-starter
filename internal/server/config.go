@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -70,11 +72,12 @@ func DefaultConfig() *ServerConfig {
 }
 
 // LoadConfig 从文件加载配置，文件不存在则返回默认
+// 加载后从环境变量覆盖（方便 Docker 部署）
 func LoadConfig(path string) (*ServerConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return DefaultConfig(), nil
+			return applyEnvOverrides(DefaultConfig()), nil
 		}
 		return nil, fmt.Errorf("读取配置 %s 失败: %w", path, err)
 	}
@@ -84,7 +87,7 @@ func LoadConfig(path string) (*ServerConfig, error) {
 		return nil, fmt.Errorf("解析配置 %s 失败: %w", path, err)
 	}
 
-	return cfg, nil
+	return applyEnvOverrides(cfg), nil
 }
 
 // SaveConfig 保存配置到文件
@@ -99,4 +102,53 @@ func SaveConfig(path string, cfg *ServerConfig) error {
 // ListenAddr 返回监听地址字符串
 func (s *ServerConfig) ListenAddr() string {
 	return fmt.Sprintf("%s:%d", s.Server.Host, s.Server.Port)
+}
+
+// applyEnvOverrides 从环境变量覆盖配置（遵循 MC_前缀惯例）
+// 支持的环境变量:
+//   MC_SERVER_HOST, MC_SERVER_PORT, MC_SERVER_TLS_ENABLED
+//   MC_AUTH_ENABLED, MC_AUTH_ADMIN_TOKEN, MC_AUTH_CLIENT_REQUIRE_TOKEN
+//   MC_STORAGE_DATA_DIR, MC_STORAGE_PACKS_DIR
+//   MC_PACKS_DEFAULT_PRIMARY
+func applyEnvOverrides(cfg *ServerConfig) *ServerConfig {
+	if v := os.Getenv("MC_SERVER_HOST"); v != "" {
+		cfg.Server.Host = v
+	}
+	if v := os.Getenv("MC_SERVER_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil {
+			cfg.Server.Port = p
+		}
+	}
+	if v := os.Getenv("MC_SERVER_TLS_ENABLED"); v != "" {
+		cfg.Server.TLSEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("MC_AUTH_ENABLED"); v != "" {
+		cfg.Auth.Enabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("MC_AUTH_ADMIN_TOKEN"); v != "" {
+		cfg.Auth.AdminToken = v
+	}
+	if v := os.Getenv("MC_AUTH_CLIENT_REQUIRE_TOKEN"); v != "" {
+		cfg.Auth.ClientRequireToken = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := os.Getenv("MC_STORAGE_DATA_DIR"); v != "" {
+		cfg.Storage.DataDir = v
+	}
+	if v := os.Getenv("MC_STORAGE_PACKS_DIR"); v != "" {
+		cfg.Storage.PacksDir = v
+	}
+	if v := os.Getenv("MC_PACKS_DEFAULT_PRIMARY"); v != "" {
+		cfg.Packs.DefaultPrimary = v
+	}
+	// 支持文件存储方式覆盖
+	if v := os.Getenv("MC_STORAGE_FILE_STORAGE"); v != "" {
+		cfg.Storage.FileStorage = v
+	}
+	// 支持上传大小限制覆盖
+	if v := os.Getenv("MC_STORAGE_MAX_PACK_SIZE_MB"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil && p > 0 {
+			cfg.Storage.MaxPackSizeMB = p
+		}
+	}
+	return cfg
 }

@@ -1,0 +1,9 @@
+.*
+*.md
+*.exe
+testdata/
+tests/
+memory/
+archive/
+docs/
+.git/

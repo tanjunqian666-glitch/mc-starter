@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  mc-starter-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mc-starter-server
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+    volumes:
+      # 配置文件（宿主机准备 server.yml）
+      - ./server.yml:/app/server.yml:ro
+      # 持久化数据
+      - ./data:/app/data
+      - ./packs:/app/packs
+    environment:
+      # 环境变量覆盖配置（优先级高于 server.yml）
+      # MC_AUTH_ADMIN_TOKEN: "your-strong-token-here"
+      # MC_SERVER_TLS_ENABLED: "true"
+      TZ: "Asia/Shanghai"
