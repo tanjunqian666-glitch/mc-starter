@@ -656,22 +656,14 @@ func ParseLoaderSpec(spec string) (loaderType, loaderVer string) {
 }
 
 // ensureFabric 安装 Fabric loader，返回安装结果（含 MainClass）
+// loaderVer 由服务端元数据下发，必填
 func (u *Updater) ensureFabric(req EnsureRequest, meta *VersionMeta, loaderVer string) (*FabricResult, error) {
-	// 如果未指定 loader 版本，自动选最新
+	if loaderVer == "" {
+		return nil, fmt.Errorf("Fabric: loaderVer 不能为空，必须由服务端元数据指定")
+	}
+
 	installer := NewFabricInstaller(req.MCVersion, loaderVer, req.VersionDir, req.LibraryDir)
 	installer.SetMirror(true)
-
-	if loaderVer == "" {
-		selected, err := installer.SelectLatestLoader()
-		if err != nil {
-			return nil, fmt.Errorf("获取最新 Fabric loader 版本失败: %w", err)
-		}
-		loaderVer = selected
-		logger.Info("[Ensure] 自动选择 Fabric loader: %s", loaderVer)
-		// 重建 installer
-		installer = NewFabricInstaller(req.MCVersion, loaderVer, req.VersionDir, req.LibraryDir)
-		installer.SetMirror(true)
-	}
 
 	result, err := installer.Install()
 	if err != nil {

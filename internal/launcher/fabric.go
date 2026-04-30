@@ -92,7 +92,7 @@ type FabricLibraryEntry struct {
 //   - 其他 mod loader（Forge/Quilt 有各自 meta API）
 type FabricInstaller struct {
 	mcVersion    string  // 目标 MC 版本
-	loaderVer    string  // Fabric loader 版本（空=自动选最新稳定）
+	loaderVer    string  // Fabric loader 版本（必填，由服务端元数据下发）
 	versionsDir  string  // versions/ 目录
 	librariesDir string  // libraries/ 目录
 	nativesDir   string  // natives/ 目录
@@ -162,59 +162,18 @@ func (f *FabricInstaller) fetchJSON(requestURL string, target interface{}) error
 	return nil
 }
 
-// SelectLatestLoader 获取指定 MC 版本的最新稳定 loader 版本号
-func (f *FabricInstaller) SelectLatestLoader() (string, error) {
-	metaURL := fmt.Sprintf("%s/versions/loader/%s", f.baseURL, f.mcVersion)
-	logger.Debug("Fabric: 获取 loader 列表 %s", metaURL)
-
-	var entries []FabricLoaderEntry
-	if err := f.fetchJSON(metaURL, &entries); err != nil {
-		return "", fmt.Errorf("获取 Fabric loader 列表失败: %w", err)
-	}
-
-	if len(entries) == 0 {
-		return "", fmt.Errorf("MC 版本 %s 没有可用的 Fabric loader", f.mcVersion)
-	}
-
-	// 优先选择 stable=true 的最新版
-	var latestStable string
-	var latestAny string
-	for _, e := range entries {
-		if latestAny == "" {
-			latestAny = e.Loader.Version
-		}
-		if e.Loader.Stable {
-			latestStable = e.Loader.Version
-		}
-	}
-
-	if latestStable != "" {
-		logger.Debug("Fabric: 选中最新稳定 loader %s", latestStable)
-		return latestStable, nil
-	}
-	logger.Debug("Fabric: 无稳定版，使用最新版 %s", latestAny)
-	return latestAny, nil
-}
-
 // Install 安装 Fabric loader
 //
 // 执行流程：
-//  1. 确定 loader 版本（自动或指定）
-//  2. 拉取 profile JSON
-//  3. 写入 version JSON 到 versions/ 目录
-//  4. 下载 Fabric libraries
+//  1. 拉取 profile JSON（使用构造时传入的 loaderVer）
+//  2. 写入 version JSON 到 versions/ 目录
+//  3. 下载 Fabric libraries
 func (f *FabricInstaller) Install() (*FabricResult, error) {
-	result := &FabricResult{}
-
-	// Step 1: 确定 loader 版本
 	if f.loaderVer == "" {
-		latest, err := f.SelectLatestLoader()
-		if err != nil {
-			return nil, fmt.Errorf("Fabric: 自动选择 loader 版本失败: %w", err)
-		}
-		f.loaderVer = latest
+		return nil, fmt.Errorf("Fabric: loaderVer 不能为空，请通过服务端元数据下发指定版本")
 	}
 
+	result := &FabricResult{}
 	versionID := fmt.Sprintf("fabric-loader-%s-%s", f.loaderVer, f.mcVersion)
 	result.VersionID = versionID
 	result.LoaderVersion = f.loaderVer
@@ -360,7 +319,7 @@ func (f *FabricInstaller) VerifyInstallation(versionID string) ([]string, error)
 // FabricInstallOptions 安装选项
 type FabricInstallOptions struct {
 	MCVersion    string // MC 版本（必填）
-	LoaderVer    string // Loader 版本（空=自动选择最新稳定）
+	LoaderVer    string // Loader 版本（必填，由服务端元数据下发）
 	VersionsDir  string // versions/ 目录（必填）
 	LibrariesDir string // libraries 目录（必填）
 	Mirror       bool   // 使用镜像加速
