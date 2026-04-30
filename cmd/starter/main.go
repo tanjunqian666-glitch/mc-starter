@@ -368,6 +368,12 @@ func run(cfgDir string, verbose bool, headless bool, dryRun bool) {
 		versionName := fmt.Sprintf("mc-starter-%s", packName)
 		versionTargetDir := filepath.Join(versionsDir, versionName)
 
+		// 确定 version name：优先用服务端 display_name，回退到 mc-starter-{packName}
+		versionName := fmt.Sprintf("mc-starter-%s", packName)
+		if detail != nil && detail.DisplayName != "" {
+			versionName = detail.DisplayName
+		}
+
 		// 确定 inheritsFrom 和 mainClass
 		inheritsFrom := mcVersion
 		mainClass := "net.minecraft.client.main.Main"
