@@ -109,8 +109,12 @@ func ImportZip(zipPath, repoDir, version string) (*ImportResult, error) {
 	// 尝试从 modrinth.index.json 读取整合包名
 	displayName := extractDisplayNameFromZip(zipPath)
 
-	// 尝试推断 MC 版本和 Loader
-	mcVersion, loader := inferFromMods(manifest)
+	// 优先从 modrinth.index.json 读取 mc_version + loader（精确版本号）
+	// 回退到从文件名推断（只推断类型，不推版本号）
+	mcVersion, loader := extractModrinthMeta(zipPath)
+	if mcVersion == "" {
+		mcVersion, loader = inferFromMods(manifest)
+	}
 
 	// 将推断结果写入 Manifest，使 publish 后持久化保留
 	manifest.MCVersion = mcVersion
@@ -633,16 +637,52 @@ func ListVersions(repoDir string) (drafts, published []string, err error) {
 
 // modrinthIndex 对应 modrinth.index.json 的结构
 type modrinthIndex struct {
-	Name       string `json:"name"`
-	VersionID  string `json:"versionId"`
+	Name       string            `json:"name"`
+	VersionID  string            `json:"versionId"`
+	Game       string            `json:"game"`
+	Dependencies map[string]string `json:"dependencies"` // "minecraft": "1.20.1", "fabric-loader": "0.15.11"
 }
 
 // extractDisplayNameFromZip 尝试从 zip 中读取整合包名
 // 目前支持: modrinth.index.json 的 name 字段
 func extractDisplayNameFromZip(zipPath string) string {
+	idx := parseModrinthIndex(zipPath)
+	if idx != nil {
+		return idx.Name
+	}
+	return ""
+}
+
+// extractModrinthMeta 从 .mrpack/.zip 中读取 modrinth.index.json 的元数据
+// 返回 mc_version 和 loader 完整规格（如 "fabric-0.15.11"）
+// 读取失败时返回 ("", "")
+func extractModrinthMeta(zipPath string) (mcVersion, loader string) {
+	idx := parseModrinthIndex(zipPath)
+	if idx == nil {
+		return "", ""
+	}
+	mcVersion = idx.Dependencies["minecraft"]
+
+	// dependencies 里已知的 loader key
+	loaders := []string{"fabric-loader", "forge", "neoforge", "quilt"}
+	for _, l := range loaders {
+		if ver, ok := idx.Dependencies[l]; ok && ver != "" {
+			// 转成我们的格式：把 "fabric-loader" 映射为 "fabric"
+			typeName := strings.TrimSuffix(l, "-loader")
+			if typeName == l {
+				typeName = l
+			}
+			return mcVersion, typeName + "-" + ver
+		}
+	}
+	return mcVersion, ""
+}
+
+// parseModrinthIndex 通用解析 modrinth.index.json
+func parseModrinthIndex(zipPath string) *modrinthIndex {
 	reader, err := zip.OpenReader(zipPath)
 	if err != nil {
-		return ""
+		return nil
 	}
 	defer reader.Close()
 
@@ -650,21 +690,21 @@ func extractDisplayNameFromZip(zipPath string) string {
 		if f.Name == "modrinth.index.json" {
 			rc, err := f.Open()
 			if err != nil {
-				return ""
+				return nil
 			}
 			defer rc.Close()
 
 			data, err := io.ReadAll(rc)
 			if err != nil {
-				return ""
+				return nil
 			}
 
 			var idx modrinthIndex
 			if err := json.Unmarshal(data, &idx); err != nil {
-				return ""
+				return nil
 			}
-			return idx.Name
+			return &idx
 		}
 	}
-	return ""
+	return nil
 }
