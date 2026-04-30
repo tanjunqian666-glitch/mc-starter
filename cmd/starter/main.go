@@ -264,11 +264,12 @@ func run(cfgDir string, verbose bool, headless bool, dryRun bool) {
 	}
 	mg.SaveLocal(localCfg)
 
-	if localCfg.MinecraftDir == "" {
+	mcDir := localCfg.GetMinecraftDir("")
+	if mcDir == "" {
 		fmt.Fprintf(os.Stderr, "run: 未设置 .minecraft 目录，请先配置\n")
+		fmt.Fprintf(os.Stderr, "  运行 'starter init' 配置，或编辑 local.json 中的 minecraft_dirs 字段\n")
 		return
 	}
-	mcDir := localCfg.MinecraftDir
 	versionsDir := filepath.Join(mcDir, "versions")
 	librariesDir := filepath.Join(mcDir, "libraries")
 
@@ -396,26 +397,18 @@ func initialize(cfgDir string) {
 
 	// 读取现有的，如果有则提示
 	existing, err := mg.LoadLocal()
-	if err == nil && existing.MinecraftDir != "" {
+	if err == nil && existing.GetMinecraftDir("") != "" {
 		fmt.Printf("配置已存在: %s\n", dir)
 		fmt.Printf("如需重新初始化，请删除 %s 后重试\n", filepath.Join(dir, "local.json"))
 		return
 	}
 
-	// 生成默认配置
-	local := &model.LocalConfig{
-		MinecraftDir: ".minecraft",
-		Launcher:    "bare",
-		Username:    "Player",
-	}
-
-	if err := mg.SaveLocal(local); err != nil {
-		fmt.Fprintf(os.Stderr, "保存配置失败: %v\n", err)
+	// 生成默认配置（走智能检测）
+	if err := ensureConfig(cfgDir); err != nil {
+		logger.Error("初始化失败: %v", err)
+		fmt.Fprintf(os.Stderr, "初始化失败: %v\n", err)
 		return
 	}
-
-	fmt.Printf("初始化完成: %s\n", dir)
-	fmt.Println("请编辑 local.json 修改安装路径等配置")
 }
 
 func check(cfgDir string, verbose bool) {
@@ -434,14 +427,17 @@ func check(cfgDir string, verbose bool) {
 		fmt.Printf("[✗] 本地配置: %v\n", err)
 	} else {
 		fmt.Printf("[✓] 本地配置: %s\n", cfgDir)
-		// 新版多目录支持
 		if localCfg.MinecraftDirs != nil && len(localCfg.MinecraftDirs) > 0 {
 			fmt.Printf("    安装目录:\n")
 			for packName, mcDir := range localCfg.MinecraftDirs {
 				fmt.Printf("      %s → %s\n", packName, mcDir)
 			}
 		} else {
-			fmt.Printf("    安装目录: %s\n", localCfg.MinecraftDir)
+			mcDir := localCfg.GetMinecraftDir("")
+			if mcDir == "" {
+				mcDir = ".minecraft"
+			}
+			fmt.Printf("    安装目录: %s\n", mcDir)
 		}
 		fmt.Printf("    启动器: %s\n", localCfg.Launcher)
 	}
@@ -555,8 +551,8 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 	results := finder.FindManagedVersions(managedVersions)
 	versionResult := results[targetVersion]
 	var installPath string
-	if localCfg != nil && localCfg.MinecraftDir != "" {
-		installPath = localCfg.MinecraftDir
+	if localCfg != nil {
+		installPath = localCfg.GetMinecraftDir("")
 	}
 
 	if versionResult == nil || !versionResult.Found {
@@ -1333,9 +1329,9 @@ func handleBackupList(args []string) {
 		fmt.Fprintf(os.Stderr, "读取配置失败: %v\n", err)
 		return
 	}
-	installPath := ".minecraft"
-	if localCfg.MinecraftDir != "" {
-		installPath = localCfg.MinecraftDir
+	installPath := localCfg.GetMinecraftDir("")
+	if installPath == "" {
+		installPath = ".minecraft"
 	}
 
 	repo := launcher.NewLocalRepo(installPath)
@@ -1383,9 +1379,9 @@ func handleBackupRestore(args []string) {
 		fmt.Fprintf(os.Stderr, "读取配置失败: %v\n", err)
 		return
 	}
-	installPath := ".minecraft"
-	if localCfg.MinecraftDir != "" {
-		installPath = localCfg.MinecraftDir
+	installPath := localCfg.GetMinecraftDir("")
+	if installPath == "" {
+		installPath = ".minecraft"
 	}
 
 	repo := launcher.NewLocalRepo(installPath)
@@ -1417,9 +1413,9 @@ func handleBackupCreate(args []string) {
 		fmt.Fprintf(os.Stderr, "读取配置失败: %v\n", err)
 		return
 	}
-	installPath := ".minecraft"
-	if localCfg.MinecraftDir != "" {
-		installPath = localCfg.MinecraftDir
+	installPath := localCfg.GetMinecraftDir("")
+	if installPath == "" {
+		installPath = ".minecraft"
 	}
 
 	repo := launcher.NewLocalRepo(installPath)
@@ -1464,9 +1460,9 @@ func handleBackupDelete(args []string) {
 		fmt.Fprintf(os.Stderr, "读取配置失败: %v\n", err)
 		return
 	}
-	installPath := ".minecraft"
-	if localCfg.MinecraftDir != "" {
-		installPath = localCfg.MinecraftDir
+	installPath := localCfg.GetMinecraftDir("")
+	if installPath == "" {
+		installPath = ".minecraft"
 	}
 
 	repo := launcher.NewLocalRepo(installPath)
@@ -1504,9 +1500,9 @@ func handleCache(args []string) {
 		fmt.Fprintf(os.Stderr, "读取配置失败: %v\n", err)
 		return
 	}
-	installPath := ".minecraft"
-	if localCfg.MinecraftDir != "" {
-		installPath = localCfg.MinecraftDir
+	installPath := localCfg.GetMinecraftDir("")
+	if installPath == "" {
+		installPath = ".minecraft"
 	}
 
 	switch args[0] {
@@ -1589,9 +1585,9 @@ func runDaemon(args []string, cfgDir string) {
 		return
 	}
 
-	installPath := ".minecraft"
-	if localCfg.MinecraftDir != "" {
-		installPath = localCfg.MinecraftDir
+	installPath := localCfg.GetMinecraftDir("")
+	if installPath == "" {
+		installPath = ".minecraft"
 	}
 
 	fmt.Println("\n=== 静默守护 ===")
@@ -1743,8 +1739,11 @@ func handleFabric(args []string) {
 
 		versionsDir := ".minecraft/versions"
 		librariesDir := "libraries"
-		if localCfg != nil && localCfg.MinecraftDir != "" {
-			versionsDir = filepath.Join(localCfg.MinecraftDir, "versions")
+		if localCfg != nil {
+			mcDir := localCfg.GetMinecraftDir("")
+			if mcDir != "" {
+				versionsDir = filepath.Join(mcDir, "versions")
+			}
 		}
 		// libraries 通常放在 config/libraries 或 .minecraft/libraries
 		librariesDir = filepath.Join(cfgDir, "libraries")
@@ -2417,20 +2416,53 @@ func minInt(a, b int) int {
 }
 
 // ensureConfig 确保配置文件存在，不存在则创建默认配置
+//
+// 智能检测流程：
+//  1. 扫描 .minecraft 目录（PCL + 默认路径）
+//  2. 扫到第一个 → 询问用户是否使用
+//  3. 扫不到 → 留空，打印引导
 func ensureConfig(cfgDir string) error {
 	mg := config.New(cfgDir)
 	_, err := mg.LoadLocal()
-	if err != nil {
-		// 生成默认配置
-		local := &model.LocalConfig{
-			MinecraftDir: ".minecraft",
-			Launcher:    "bare",
-			Username:    "Player",
-		}
-		if err := mg.SaveLocal(local); err != nil {
-			return fmt.Errorf("创建默认配置: %w", err)
-		}
-		logger.Info("已创建默认配置: %s", cfgDir)
+	if err == nil {
+		return nil // 配置已存在
 	}
+
+	// 扫描 .minecraft 目录
+	fmt.Println("首次启动，正在检测 Minecraft 环境...")
+	dirs := launcher.FindMinecraftDirs()
+
+	local := &model.LocalConfig{
+		Launcher: "bare",
+		Username: "Player",
+		Packs:    make(map[string]model.PackState),
+		MinecraftDirs: make(map[string]string),
+	}
+
+	if len(dirs) > 0 {
+		first := dirs[0]
+		fmt.Printf("\n发现 Minecraft 目录: %s\n", first)
+		fmt.Print("使用这个目录？(Y/n): ")
+
+		var answer string
+		fmt.Scanln(&answer)
+		answer = strings.TrimSpace(answer)
+		if answer == "" || answer == "y" || answer == "Y" || answer == "yes" || answer == "Yes" {
+			local.MinecraftDirs["_default"] = first
+			fmt.Printf("已设置 Minecraft 目录: %s\n", first)
+		} else {
+			fmt.Println("跳过，稍后可通过编辑 local.json 或运行 'starter init' 设置")
+		}
+	} else {
+		fmt.Println("\n未检测到 Minecraft 目录，稍后可以通过以下方式配置：")
+		fmt.Println("  1. 编辑 local.json 中的 minecraft_dirs 字段")
+		fmt.Println("  2. 运行 'starter init' 重新初始化")
+		fmt.Println("  3. 使用 GUI 首次配置向导自动完成")
+	}
+
+	if err := mg.SaveLocal(local); err != nil {
+		return fmt.Errorf("创建默认配置: %w", err)
+	}
+	logger.Info("已创建默认配置: %s", cfgDir)
 	return nil
 }

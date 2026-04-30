@@ -144,41 +144,35 @@ func (f *VersionFinder) findViaPCL(remaining map[string]bool, results map[string
 	}
 }
 
-// findViaFallback 回退到旧式扫描
-// 检查默认路径和 LocalConfig.InstallPath
+// findViaFallback 回退到全量扫描
+// 收集以下来源的 .minecraft 目录：
+//  1. ResolveMinecraftDirs（PCL 配置 + 默认路径）
+//  2. LocalConfig 中已记录的目录（GetMinecraftDir）
 func (f *VersionFinder) findViaFallback(remaining map[string]bool, results map[string]*VersionFindResult) {
-	// 收集所有需要检查的 .minecraft 目录
 	var mcDirs []string
+	seen := make(map[string]bool)
 
-	// 1. 优先用 LocalConfig 里记录的路径
-	if f.localCfg != nil && f.localCfg.MinecraftDir != "" {
-		mcDirs = append(mcDirs, f.localCfg.MinecraftDir)
+	// 1. ResolveMinecraftDirs（PCL + 默认路径）
+	managed, raw := ResolveMinecraftDirs()
+	for _, m := range managed {
+		if !seen[m.Path] {
+			seen[m.Path] = true
+			mcDirs = append(mcDirs, m.Path)
+		}
+	}
+	for _, d := range raw {
+		if !seen[d] {
+			seen[d] = true
+			mcDirs = append(mcDirs, d)
+		}
 	}
 
-	// 2. 默认路径
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "."
-	}
-	defaults := []string{
-		filepath.Join(home, ".minecraft"),
-		filepath.Join(home, "AppData", "Roaming", ".minecraft"),
-		".minecraft",
-	}
-	for _, d := range defaults {
-		d = filepath.Clean(d)
-		if info, err := os.Stat(d); err == nil && info.IsDir() {
-			// 去重
-			dup := false
-			for _, existing := range mcDirs {
-				if existing == d {
-					dup = true
-					break
-				}
-			}
-			if !dup {
-				mcDirs = append(mcDirs, d)
-			}
+	// 2. LocalConfig 中记录的目录（可能不在标准路径上）
+	if f.localCfg != nil {
+		mcDir := f.localCfg.GetMinecraftDir("")
+		if mcDir != "" && !seen[mcDir] {
+			seen[mcDir] = true
+			mcDirs = append(mcDirs, mcDir)
 		}
 	}
 
