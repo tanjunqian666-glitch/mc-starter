@@ -4,21 +4,22 @@ package tray
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"sync"
 
 	"github.com/gege-tlph/mc-starter/internal/repair"
 	"github.com/lxn/walk"
-	"github.com/lxn/win"
 )
 
 // WindowsTrayManager Windows 托盘实现（基于 lxn/walk）
 type WindowsTrayManager struct {
-	mu       sync.Mutex
-	ni       *walk.NotifyIcon
-	status   string // 当前状态文本
-	cfgDir   string
-	mcDir    string
-	stopCh   chan struct{}
+	mu     sync.Mutex
+	ni     *walk.NotifyIcon
+	status string // 当前状态文本
+	cfgDir string
+	mcDir  string
+	stopCh chan struct{}
 }
 
 // NewManager 创建托盘管理器
@@ -39,15 +40,13 @@ func (m *WindowsTrayManager) Start() error {
 		return nil // 已启动
 	}
 
-	// walk.NewNotifyIcon 需要一个 Form 参数（可以是 nil，但某些功能受限）
-	// 创建隐藏主窗口作为 parent
+	// walk.NewNotifyIcon 需要一个 Form 参数
 	mw, err := walk.NewMainWindow()
 	if err != nil {
 		return fmt.Errorf("创建主窗口失败: %w", err)
 	}
 	mw.SetVisible(false)
 
-	// 创建 NotifyIcon
 	ni, err := walk.NewNotifyIcon(mw)
 	if err != nil {
 		return fmt.Errorf("创建通知图标失败: %w", err)
@@ -55,30 +54,26 @@ func (m *WindowsTrayManager) Start() error {
 
 	m.ni = ni
 
-	// 设置图标（使用默认应用图标）
+	// 设置图标
 	icon, err := walk.Resources.Icon("../img/app.ico")
 	if err != nil {
-		// 没有自定义图标时使用 walk 内置方式
 		_ = ni.SetIcon(walk.IconApplication())
 	} else {
 		_ = ni.SetIcon(icon)
 	}
 
-	// 设置悬停提示
 	_ = ni.SetToolTip("MC-Starter")
 
-	// 构建右键菜单
 	if err := m.buildContextMenu(); err != nil {
 		return fmt.Errorf("构建右键菜单失败: %w", err)
 	}
 
-	// 设置可见
 	_ = ni.SetVisible(true)
 
-	// 左键双击打开目录
-	_ = ni.MessageClicked().Attach(func(btn walk.NotifyIconMessageButton) {
-		if btn == walk.NotifyIconButtonLeft {
-			walk.Run("explorer", m.mcDir)
+	// 左键双击打开目录（使用 MouseDown 事件，因为新版本 MessageClicked 不传按钮类型）
+	_ = ni.MouseDown().Attach(func(x, y int, button walk.MouseButton) {
+		if button == walk.LeftButton {
+			openExplorer(m.mcDir)
 		}
 	})
 
@@ -114,14 +109,12 @@ func (m *WindowsTrayManager) buildContextMenu() error {
 
 	_ = actions.Add(walk.NewSeparatorAction())
 
-	// 打开游戏目录
 	_ = actions.Add(m.newAction("打开 .minecraft", func() {
-		walk.Run("explorer", m.mcDir)
+		openExplorer(m.mcDir)
 	}))
 
 	_ = actions.Add(walk.NewSeparatorAction())
 
-	// 退出
 	_ = actions.Add(m.newAction("退出", func() {
 		m.Stop()
 	}))
@@ -172,36 +165,51 @@ func (m *WindowsTrayManager) NotifyCrash(ev repair.CrashEvent) {
 		return
 	}
 
-	// 弹气泡通知
 	title := "MC-Starter - 崩溃检测"
 	msg := ev.Reason
 	if msg == "" {
 		msg = "Minecraft 发生了崩溃"
 	}
-	_ = m.ni.ShowCustom(title, msg)
+	// walk 新版 ShowCustom 需要 icon 参数，传 nil 用默认
+	_ = m.ni.ShowCustom(title, msg, nil)
 
-	// 更新状态
 	m.status = "崩溃: " + ev.Reason
 	_ = m.ni.SetToolTip("MC-Starter - " + m.status)
 }
 
 // runUpdate 执行更新
 func (m *WindowsTrayManager) runUpdate() {
-	exe, _ := walk.Executable()
-	_ = walk.Run(exe, "update", "--config", m.cfgDir)
+	runStarter(m.cfgDir, "update")
 }
 
 // runRepair 执行修复
 func (m *WindowsTrayManager) runRepair(action string) {
-	exe, _ := walk.Executable()
+	args := []string{"repair"}
 	switch action {
 	case "clean":
-		_ = walk.Run(exe, "repair", "--clean", "--headless", "--config", m.cfgDir)
+		args = append(args, "--clean")
 	case "mods-only":
-		_ = walk.Run(exe, "repair", "--mods-only", "--headless", "--config", m.cfgDir)
+		args = append(args, "--mods-only")
 	case "config-only":
-		_ = walk.Run(exe, "repair", "--config-only", "--headless", "--config", m.cfgDir)
+		args = append(args, "--config-only")
 	case "rollback":
-		_ = walk.Run(exe, "repair", "--rollback", "--config", m.cfgDir)
+		args = append(args, "--rollback")
 	}
+	args = append(args, "--headless", "--config", m.cfgDir)
+	runStarter(m.cfgDir, args...)
+}
+
+// runStarter 启动 starter 子进程
+func runStarter(cfgDir string, args ...string) {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	cmd := exec.Command(exe, args...)
+	_ = cmd.Start()
+}
+
+// openExplorer 打开资源管理器
+func openExplorer(path string) {
+	_ = exec.Command("explorer", path).Start()
 }

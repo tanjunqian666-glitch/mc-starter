@@ -402,8 +402,6 @@ func check(cfgDir string, verbose bool) {
 }
 
 func sync(cfgDir string, verbose bool, dryRun bool) {
-
-func sync(cfgDir string, verbose bool, dryRun bool) {
 	logger.Init(verbose)
 	logger.Info("sync: 开始同步")
 
