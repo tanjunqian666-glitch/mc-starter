@@ -62,6 +62,8 @@ type IncrementalUpdate struct {
 	Version        string                    `json:"version"`
 	FromVersion    string                    `json:"from_version"`
 	Mode           string                    `json:"mode"` // "incremental" | "full"
+	MCVersion      string                    `json:"mc_version,omitempty"`  // 所需 MC 版本
+	Loader         string                    `json:"loader,omitempty"`       // 所需加载器，格式 "<type>-<ver>" 或空
 	Added          []FileChangeEntry         `json:"added,omitempty"`
 	Updated        []FileChangeEntry         `json:"updated,omitempty"`
 	Removed        []string                  `json:"removed,omitempty"`
