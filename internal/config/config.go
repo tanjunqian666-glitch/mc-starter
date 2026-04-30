@@ -147,7 +147,6 @@ func (m *Manager) LoadLocal() (*model.LocalConfig, error) {
 			return &model.LocalConfig{
 				Launcher:   "bare",
 				MirrorMode: "auto",
-				Memory:     4096,
 				Username:   "Player",
 				Packs:      make(map[string]model.PackState),
 			}, nil
