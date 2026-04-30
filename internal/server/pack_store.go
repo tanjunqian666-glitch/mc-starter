@@ -207,6 +207,19 @@ func (s *PackStore) UpdateLatestVersion(name, version string) error {
 	return s.saveIndex()
 }
 
+// UpdateDisplayName 更新包的展示名
+func (s *PackStore) UpdateDisplayName(name, displayName string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	m, exists := s.index.Packs[name]
+	if !exists {
+		return fmt.Errorf("整合包 '%s' 不存在", name)
+	}
+	m.DisplayName = displayName
+	return s.saveIndex()
+}
+
 // PackDir 返回包的文件存储目录
 func (s *PackStore) PackDir(name string) string {
 	if name == "" {

@@ -325,6 +325,16 @@ func (s *Server) handleImportPack(w http.ResponseWriter, r *http.Request) {
 		version = strings.TrimSuffix(header.Filename, ".zip")
 	}
 
+	// display_name：可选，不传则从文件名取
+	displayName := r.FormValue("display_name")
+	if displayName == "" {
+		displayName = strings.TrimSuffix(header.Filename, ".zip")
+	}
+	// 更新包展示名
+	if err := s.store.UpdateDisplayName(name, displayName); err != nil {
+		fmt.Printf("WARN: 更新展示名失败: %v\n", err)
+	}
+
 	// 调用 pack.ImportZip
 	result, err := pack.ImportZip(tmpFile.Name(), s.store.PackDir(name), version)
 	if err != nil {
