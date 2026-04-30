@@ -71,6 +71,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/packs/{name}/files/{hash}", s.requireClientToken(s.handleFileDownload))
 	mux.HandleFunc("POST /api/v1/packs/{name}/crash-report", s.requireClientToken(s.handleCrashReport))
 
+	// P6 频道端点（客户端和管理端均可查询）
+	mux.HandleFunc("GET /api/v1/packs/{name}/channels", s.requireClientToken(s.handleListChannels))
+
 	// 管理端端点（需认证）
 	mux.HandleFunc("POST /api/v1/admin/packs", s.requireAdmin(s.handleCreatePack))
 	mux.HandleFunc("DELETE /api/v1/admin/packs/{name}", s.requireAdmin(s.handleDeletePack))
@@ -80,6 +83,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/admin/packs/{name}/publish", s.requireAdmin(s.handlePublishPack))
 	mux.HandleFunc("GET /api/v1/admin/packs/{name}/versions", s.requireAdmin(s.handleListVersions))
 	mux.HandleFunc("DELETE /api/v1/admin/packs/{name}/versions/{ver}", s.requireAdmin(s.handleDeleteVersion))
+	// P6 管理端频道端点
+	mux.HandleFunc("POST /api/v1/admin/packs/{name}/channels", s.requireAdmin(s.handleCreateChannel))
+	mux.HandleFunc("DELETE /api/v1/admin/packs/{name}/channels/{channel}", s.requireAdmin(s.handleDeleteChannel))
 }
 
 // withMiddleware 包装通用的 HTTP 中间件

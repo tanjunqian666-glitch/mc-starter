@@ -50,12 +50,19 @@ func (m *Manager) FetchPacks(serverURL string) (*model.PacksResponse, error) {
 	return &resp, nil
 }
 
-// FetchUpdate 从服务端拉取增量更新信息
-func (m *Manager) FetchUpdate(serverURL, packName, fromVersion string) (*model.IncrementalUpdate, error) {
+// FetchUpdate 从服务端拉取增量更新信息（P6 扩展：支持 channels 参数）
+func (m *Manager) FetchUpdate(serverURL, packName, fromVersion string, channels []string) (*model.IncrementalUpdate, error) {
 	baseURL := strings.TrimRight(serverURL, "/")
 	url := fmt.Sprintf("%s/api/v1/packs/%s/update", baseURL, packName)
+	params := []string{}
 	if fromVersion != "" {
-		url += "?from=" + fromVersion
+		params = append(params, "from="+fromVersion)
+	}
+	if len(channels) > 0 {
+		params = append(params, "channels="+strings.Join(channels, ","))
+	}
+	if len(params) > 0 {
+		url += "?" + strings.Join(params, "&")
 	}
 	data, err := m.httpGet(url)
 	if err != nil {
@@ -154,6 +161,40 @@ func (m *Manager) PostCrashReport(serverURL, packName string, report model.Crash
 // HTTPGet 返回原始 HTTP 响应（用于外部文件下载）
 func (m *Manager) HTTPGet(url string) (*http.Response, error) {
 	return m.client.Get(url)
+}
+
+// ============================================================
+// P6 频道 API
+// ============================================================
+
+// FetchPackDetail 拉取单个包详情（含频道信息）
+func (m *Manager) FetchPackDetail(serverURL, packName string) (*model.PackDetail, error) {
+	baseURL := strings.TrimRight(serverURL, "/")
+	url := fmt.Sprintf("%s/api/v1/packs/%s", baseURL, packName)
+	data, err := m.httpGet(url)
+	if err != nil {
+		return nil, fmt.Errorf("拉取包详情失败: %w", err)
+	}
+	var detail model.PackDetail
+	if err := json.Unmarshal(data, &detail); err != nil {
+		return nil, fmt.Errorf("解析包详情失败: %w", err)
+	}
+	return &detail, nil
+}
+
+// FetchChannels 拉取包的频道列表
+func (m *Manager) FetchChannels(serverURL, packName string) (*model.ChannelsResponse, error) {
+	baseURL := strings.TrimRight(serverURL, "/")
+	url := fmt.Sprintf("%s/api/v1/packs/%s/channels", baseURL, packName)
+	data, err := m.httpGet(url)
+	if err != nil {
+		return nil, fmt.Errorf("拉取频道列表失败: %w", err)
+	}
+	var resp model.ChannelsResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("解析频道列表失败: %w", err)
+	}
+	return &resp, nil
 }
 
 // ============================================================

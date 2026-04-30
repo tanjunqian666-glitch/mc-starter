@@ -122,6 +122,8 @@ func main() {
 		runDaemon(subArgs, cfgDir)
 	case "version":
 		fmt.Printf("mc-starter %s\n", version)
+	case "channel":
+		handleChannel(subArgs, cfgDir)
 	case "self-update":
 		handleSelfUpdate(subArgs, cfgDir)
 	case "help", "--help", "-h":
@@ -166,6 +168,10 @@ mc-starter — Windows 版 Minecraft 版本管理 & 整合包更新器
     history            查看更新历史
     channel <name>     切换更新通道 (stable/beta/dev)
   starter version  显示版本信息
+  starter channel  频道管理
+    list            列出包的频道
+    enable          启用频道
+    disable         禁用频道
   starter help     显示此帮助
 
 全局选项:
@@ -955,6 +961,23 @@ func handleUpdateMulti(cfgDir string, verbose, dryRun bool, packName string, upd
 		fmt.Printf("[✓] %s\n", result.Summary())
 		state.LocalVersion = result.Version
 		state.Status = "synced"
+
+		// P6: 同步包详情中的频道信息
+		detail, detailErr := mg.FetchPackDetail(serverURL, packName)
+		if detailErr == nil && len(detail.Channels) > 0 {
+			if state.Channels == nil {
+				state.Channels = make(map[string]model.ChannelState)
+			}
+			for _, ch := range detail.Channels {
+				if _, ok := state.Channels[ch.Name]; !ok {
+					state.Channels[ch.Name] = model.ChannelState{
+						Enabled: ch.Required,
+						Version: ch.Version,
+					}
+				}
+			}
+		}
+
 		localCfg.Packs[packName] = state
 		mg.SaveLocal(localCfg)
 		return
@@ -985,22 +1008,48 @@ func handleUpdateMulti(cfgDir string, verbose, dryRun bool, packName string, upd
 		fmt.Printf("  %s %s (%s)\n", mark, p.DisplayName, p.LatestVersion)
 	}
 
-	// 同步包列表到本地配置
+	// 同步包列表到本地配置（P6 扩展：同步频道信息）
 	for _, p := range packsResp.Packs {
-		if _, exists := localCfg.Packs[p.Name]; !exists {
+		existing, exists := localCfg.Packs[p.Name]
+		if !exists {
 			// 主包自动启用，副包默认禁用
-			localCfg.Packs[p.Name] = model.PackState{
-				Enabled: p.Primary,
-				Status:  "none",
-				Dir:     fmt.Sprintf("packs/%s", p.Name),
+			channelsMap := make(map[string]model.ChannelState)
+			if len(p.Channels) > 0 {
+				for _, ch := range p.Channels {
+					channelsMap[ch.Name] = model.ChannelState{
+						Enabled: ch.Required,
+						Version: "",
+					}
+				}
 			}
+			localCfg.Packs[p.Name] = model.PackState{
+				Enabled:  p.Primary,
+				Status:   "none",
+				Dir:      fmt.Sprintf("packs/%s", p.Name),
+				Channels: channelsMap,
+			}
+		} else if len(p.Channels) > 0 {
+			// 已有包，合并/更新频道信息
+			if existing.Channels == nil {
+				existing.Channels = make(map[string]model.ChannelState)
+			}
+			for _, ch := range p.Channels {
+				if _, ok := existing.Channels[ch.Name]; !ok {
+					// 新频道出现
+					existing.Channels[ch.Name] = model.ChannelState{
+						Enabled: ch.Required,
+						Version: "",
+					}
+				}
+			}
+			localCfg.Packs[p.Name] = existing
 		}
 	}
 	mg.SaveLocal(localCfg)
 
 	// 更新已启用的包
 	updater := launcher.NewUpdater(cfgDir, mcDir, mg)
-	results := updater.UpdateAllPacks(serverURL, localCfg.Packs)
+	results := updater.UpdateAllPacks(serverURL, localCfg.Packs, nil)
 
 	hasNewVersion := false
 	for name, r := range results {
@@ -1743,6 +1792,181 @@ func handlePackList(args []string) {
 	for _, v := range drafts {
 		fmt.Printf("  [draft]     %s\n", v)
 	}
+}
+
+// ==== 频道管理 (P6) ====
+
+// handleChannel 处理 channel 子命令
+func handleChannel(args []string, cfgDir string) {
+	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+		fmt.Println(strings.TrimSpace(`
+用法:
+  starter channel list [--pack <包名>]         列出所有已启用包的频道状态
+  starter channel enable <包名> --channel <频道名>  启用频道
+  starter channel disable <包名> --channel <频道名> 禁用频道
+
+示例:
+  starter channel list                           列出所有包的频道
+  starter channel list --pack main-pack          只列 main-pack 的频道
+  starter channel enable main-pack --channel shaderpacks  启用光影包频道
+  starter channel disable main-pack --channel shaderpacks 禁用光影包频道
+		`))
+		return
+	}
+
+	mg := config.New(cfgDir)
+	localCfg, err := mg.LoadLocal()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读取配置失败: %v\n", err)
+		return
+	}
+
+	switch args[0] {
+	case "list":
+		handleChannelList(args[1:], mg, localCfg)
+	case "enable":
+		handleChannelEnable(args[1:], mg, localCfg)
+	case "disable":
+		handleChannelDisable(args[1:], mg, localCfg)
+	default:
+		fmt.Printf("channel: unknown subcommand %s\n", args[0])
+		fmt.Println("可用: list, enable, disable")
+	}
+}
+
+func handleChannelList(args []string, mg *config.Manager, localCfg *model.LocalConfig) {
+	fs := flag.NewFlagSet("channel list", flag.ExitOnError)
+	packFilter := fs.String("pack", "", "指定包名")
+	fs.Parse(args)
+
+	hasPrint := false
+	for packName, state := range localCfg.Packs {
+		if *packFilter != "" && packName != *packFilter {
+			continue
+		}
+
+		if !hasPrint {
+			hasPrint = true
+		}
+
+		ver := state.LocalVersion
+		if ver == "" {
+			ver = "(未安装)"
+		}
+
+		fmt.Printf("\n包: %s (%s)\n", packName, ver)
+
+		if len(state.Channels) == 0 {
+			fmt.Println("  (无频道信息，使用默认同步)")
+			continue
+		}
+
+		for chName, chState := range state.Channels {
+			requiredMark := ""
+			verStr := chState.Version
+			if verStr == "" {
+				verStr = "(未安装)"
+			}
+			if chState.Enabled {
+				fmt.Printf("  ☑ %s  [%s]\n", chName, verStr)
+			} else {
+				fmt.Printf("  ☐ %s  [%s]\n", chName, verStr)
+			}
+		}
+	}
+
+	if !hasPrint {
+		fmt.Println("没有已配置的包")
+	}
+}
+
+func handleChannelEnable(args []string, mg *config.Manager, localCfg *model.LocalConfig) {
+	fs := flag.NewFlagSet("channel enable", flag.ExitOnError)
+	channelName := fs.String("channel", "", "频道名")
+	fs.Parse(args)
+
+	if fs.NArg() < 1 || *channelName == "" {
+		fmt.Println("用法: starter channel enable <包名> --channel <频道名>")
+		return
+	}
+
+	packName := fs.Arg(0)
+	state, ok := localCfg.Packs[packName]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "包 %s 未在配置中\n", packName)
+		return
+	}
+
+	if state.Channels == nil {
+		state.Channels = make(map[string]model.ChannelState)
+	}
+
+	ch, exists := state.Channels[*channelName]
+	if !exists {
+		fmt.Fprintf(os.Stderr, "频道 %s 未在包 %s 中定义\n", *channelName, packName)
+		return
+	}
+
+	if ch.Enabled {
+		fmt.Printf("频道 %s 已启用\n", *channelName)
+		return
+	}
+
+	ch.Enabled = true
+	state.Channels[*channelName] = ch
+	localCfg.Packs[packName] = state
+
+	if err := mg.SaveLocal(localCfg); err != nil {
+		fmt.Fprintf(os.Stderr, "保存配置失败: %v\n", err)
+		return
+	}
+
+	fmt.Printf("[✓] 频道 %s 已启用，下次 update 将同步该频道\n", *channelName)
+	fmt.Println("运行 `starter update` 立即同步")
+}
+
+func handleChannelDisable(args []string, mg *config.Manager, localCfg *model.LocalConfig) {
+	fs := flag.NewFlagSet("channel disable", flag.ExitOnError)
+	channelName := fs.String("channel", "", "频道名")
+	fs.Parse(args)
+
+	if fs.NArg() < 1 || *channelName == "" {
+		fmt.Println("用法: starter channel disable <包名> --channel <频道名>")
+		return
+	}
+
+	packName := fs.Arg(0)
+	state, ok := localCfg.Packs[packName]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "包 %s 未在配置中\n", packName)
+		return
+	}
+
+	if state.Channels == nil {
+		state.Channels = make(map[string]model.ChannelState)
+	}
+
+	ch, exists := state.Channels[*channelName]
+	if !exists {
+		fmt.Fprintf(os.Stderr, "频道 %s 未在包 %s 中定义\n", *channelName, packName)
+		return
+	}
+
+	if !ch.Enabled {
+		fmt.Printf("频道 %s 已禁用\n", *channelName)
+		return
+	}
+
+	ch.Enabled = false
+	state.Channels[*channelName] = ch
+	localCfg.Packs[packName] = state
+
+	if err := mg.SaveLocal(localCfg); err != nil {
+		fmt.Fprintf(os.Stderr, "保存配置失败: %v\n", err)
+		return
+	}
+
+	fmt.Printf("[✓] 频道 %s 已禁用，下次 update 将跳过该频道\n", *channelName)
 }
 
 // ==== 自更新 (P3) ====

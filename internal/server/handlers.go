@@ -582,6 +582,86 @@ func findLatestDraftInDir(versionsDir string) (string, error) {
 }
 
 // ============================================================
+// 频道端点（P6 频道体系）
+// ============================================================
+
+// handleListChannels GET /api/v1/packs/{name}/channels
+func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "缺少包名")
+		return
+	}
+
+	channels, err := s.store.GetChannels(name)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "PACK_NOT_FOUND", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, model.ChannelsResponse{Channels: channels})
+}
+
+// handleCreateChannel POST /api/v1/admin/packs/{name}/channels
+func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "缺少包名")
+		return
+	}
+
+	var req struct {
+		ChannelName string   `json:"channel_name"`
+		DisplayName string   `json:"display_name"`
+		Description string   `json:"description,omitempty"`
+		Required    bool     `json:"required"`
+		Dirs        []string `json:"dirs"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "无效的 JSON 请求体")
+		return
+	}
+
+	if req.ChannelName == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "频道名不能为空")
+		return
+	}
+
+	if err := s.store.CreateChannel(name, req.ChannelName, req.DisplayName, req.Description, req.Required, req.Dirs); err != nil {
+		writeError(w, http.StatusBadRequest, "CREATE_FAILED", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"status":  "created",
+		"channel": req.ChannelName,
+		"pack":    name,
+	})
+}
+
+// handleDeleteChannel DELETE /api/v1/admin/packs/{name}/channels/{channel}
+func (s *Server) handleDeleteChannel(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	channel := r.PathValue("channel")
+	if name == "" || channel == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "缺少包名或频道名")
+		return
+	}
+
+	if err := s.store.DeleteChannel(name, channel); err != nil {
+		writeError(w, http.StatusBadRequest, "DELETE_FAILED", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "deleted",
+		"channel": channel,
+		"pack":    name,
+	})
+}
+
+// ============================================================
 // 崩溃报告端点
 // ============================================================
 

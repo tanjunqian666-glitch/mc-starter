@@ -120,20 +120,22 @@ func (u *Updater) LocalRepo() *LocalRepo { return u.repo }
 // 核心：更新单个包
 // ============================================================
 
-// UpdatePack 更新指定包
-// packState: 本地包状态（含版本号），nil 表示首次安装
+// UpdatePack 更新指定包（P6 扩展：支持频道）
+// packState: 本地包状态（含版本号和频道状态），nil 表示首次安装
 // forceFull: 强制全量更新
 func (u *Updater) UpdatePack(serverURL, packName string, packState *model.PackState, forceFull bool) (*UpdateResult, error) {
 	result := &UpdateResult{PackName: packName}
 
-	// 1. 拉取增量信息
+	// 1. 确定已启用的频道列表
+	enabledChannels := u.getEnabledChannels(packState)
 	localVer := ""
 	if packState != nil && packState.LocalVersion != "" {
 		localVer = packState.LocalVersion
 	}
 	result.FromVersion = localVer
 
-	update, err := u.api.FetchUpdate(serverURL, packName, localVer)
+	// 2. 拉取增量信息（带上已启用的频道）
+	update, err := u.api.FetchUpdate(serverURL, packName, localVer, enabledChannels)
 	if err != nil {
 		return nil, fmt.Errorf("拉取 %s 更新信息失败: %w", packName, err)
 	}
@@ -152,8 +154,22 @@ func (u *Updater) UpdatePack(serverURL, packName string, packState *model.PackSt
 		return u.applyFullUpdate(serverURL, packName, update, result)
 	}
 
-	// 2. 增量模式
+	// 3. 增量模式
 	return u.applyIncremental(serverURL, packName, update, result, packState)
+}
+
+// getEnabledChannels 从包状态中提取已启用的频道名列表
+func (u *Updater) getEnabledChannels(packState *model.PackState) []string {
+	if packState == nil || len(packState.Channels) == 0 {
+		return nil
+	}
+	var channels []string
+	for name, ch := range packState.Channels {
+		if ch.Enabled {
+			channels = append(channels, name)
+		}
+	}
+	return channels
 }
 
 // ============================================================
@@ -252,12 +268,12 @@ func (u *Updater) applyFullUpdate(serverURL, packName string, update *model.Incr
 // 多包批量更新
 // ============================================================
 
-// UpdateAllPacks 更新所有已启用的包
+// UpdateAllPacks 更新所有已启用的包（P6 扩展：同步各包频道信息到本地配置）
 // 返回每个包各自的更新结果
-func (u *Updater) UpdateAllPacks(serverURL string, packs map[string]model.PackState) map[string]*UpdateResult {
+// 新增配置同步回调：用于更新本地配置中的频道信息
+func (u *Updater) UpdateAllPacks(serverURL string, packs map[string]model.PackState, onChannels func(packName string, channels []model.ChannelInfo)) map[string]*UpdateResult {
 	results := make(map[string]*UpdateResult)
 
-	// 先排主包（如果有 server_url 则从 API 获取 primary 标记）
 	for name, state := range packs {
 		if !state.Enabled {
 			continue

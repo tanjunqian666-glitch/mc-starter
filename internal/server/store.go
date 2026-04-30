@@ -27,6 +27,11 @@ type PackStoreIface interface {
 	GetPack(name string) (*model.PackDetail, error)
 	UpdateLatestVersion(name, version string) error
 
+	// 频道管理（P6）
+	CreateChannel(name, channelName, displayName, description string, required bool, dirs []string) error
+	DeleteChannel(name, channelName string) error
+	GetChannels(name string) ([]model.ChannelInfo, error)
+
 	// 目录查询（用于文件读写）
 	PackDir(name string) string
 	FilesDir(name string) string

@@ -143,7 +143,7 @@ func (s *PackStore) DeletePack(name string) error {
 	return s.saveIndex()
 }
 
-// ListPacks 返回所有包的元数据
+// ListPacks 返回所有包的元数据（P6 扩展：附带频道信息）
 func (s *PackStore) ListPacks() []model.PackInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -151,19 +151,23 @@ func (s *PackStore) ListPacks() []model.PackInfo {
 	result := make([]model.PackInfo, 0, len(s.index.Packs))
 	for _, m := range s.index.Packs {
 		pf := loadPackFileInfo(s.config.Storage.PacksDir, m.Name, m.LatestVersion)
-		result = append(result, model.PackInfo{
+		pi := model.PackInfo{
 			Name:          m.Name,
 			DisplayName:   m.DisplayName,
 			Primary:       m.Primary,
 			LatestVersion: m.LatestVersion,
 			Description:   m.Description,
 			SizeMB:        pf.sizeMB,
-		})
+		}
+		// 附带频道信息（不锁定，读不到就算了）
+		channels, _ := s.GetChannels(m.Name)
+		pi.Channels = channels
+		result = append(result, pi)
 	}
 	return result
 }
 
-// GetPack 返回单个包详情
+// GetPack 返回单个包详情（P6 扩展：附带频道信息）
 func (s *PackStore) GetPack(name string) (*model.PackDetail, error) {
 	s.mu.RLock()
 	m, exists := s.index.Packs[name]
@@ -175,6 +179,9 @@ func (s *PackStore) GetPack(name string) (*model.PackDetail, error) {
 
 	pf := loadPackFileInfo(s.config.Storage.PacksDir, name, m.LatestVersion)
 
+	// 加载频道信息
+	channels, _ := s.GetChannels(name)
+
 	return &model.PackDetail{
 		Name:          m.Name,
 		DisplayName:   m.DisplayName,
@@ -183,6 +190,7 @@ func (s *PackStore) GetPack(name string) (*model.PackDetail, error) {
 		Description:   m.Description,
 		FileCount:     pf.fileCount,
 		TotalSize:     pf.totalSize,
+		Channels:      channels,
 	}, nil
 }
 
@@ -251,6 +259,175 @@ func loadPackFileInfo(packsDir, name, version string) packFileInfo {
 		fileCount: m.FileCount,
 		totalSize: m.TotalSize,
 	}
+}
+
+// ============================================================
+// 频道管理（P6 频道体系）
+// ============================================================
+
+// ChannelMeta 频道元数据（存储为 packages/{pack}/channels/{channel}/meta.json）
+type ChannelMeta struct {
+	Name        string   `json:"name"`
+	DisplayName string   `json:"display_name"`
+	Description string   `json:"description,omitempty"`
+	Dirs        []string `json:"dirs"`       // 关联目录（包内相对路径，如 ["mods/", "config/"]）
+	Required    bool     `json:"required"`   // 是否必选
+	Priority    int      `json:"priority"`   // 合并优先级
+	Version     string   `json:"version"`    // 当前版本
+	FileCount   int      `json:"file_count"`
+	TotalSize   int64    `json:"total_size"`
+}
+
+// channelsDir 返回包的频道目录
+func (s *PackStore) channelsDir(name string) string {
+	return filepath.Join(s.PackDir(name), "channels")
+}
+
+// channelDir 返回指定频道的目录
+func (s *PackStore) channelDir(name, channelName string) string {
+	return filepath.Join(s.channelsDir(name), channelName)
+}
+
+// CreateChannel 创建新频道
+func (s *PackStore) CreateChannel(name, channelName, displayName, description string, required bool, dirs []string) error {
+	if channelName == "" || channelName == "all" {
+		return fmt.Errorf("频道名不能为空或为保留名 'all'")
+	}
+
+	chDir := s.channelDir(name, channelName)
+	if _, err := os.Stat(chDir); err == nil {
+		return fmt.Errorf("频道 '%s' 已存在", channelName)
+	}
+
+	if err := os.MkdirAll(chDir, 0755); err != nil {
+		return fmt.Errorf("创建频道目录失败: %w", err)
+	}
+
+	if displayName == "" {
+		displayName = channelName
+	}
+
+	meta := ChannelMeta{
+		Name:        channelName,
+		DisplayName: displayName,
+		Description: description,
+		Dirs:        dirs,
+		Required:    required,
+		Priority:    0,
+		Version:     "",
+	}
+
+	return s.saveChannelMeta(name, channelName, &meta)
+}
+
+// DeleteChannel 删除频道
+func (s *PackStore) DeleteChannel(name, channelName string) error {
+	if channelName == "all" {
+		return fmt.Errorf("不能删除基础频道 'all'")
+	}
+
+	chDir := s.channelDir(name, channelName)
+	if _, err := os.Stat(chDir); os.IsNotExist(err) {
+		return fmt.Errorf("频道 '%s' 不存在", channelName)
+	}
+
+	return os.RemoveAll(chDir)
+}
+
+// GetChannels 返回包的所有频道信息
+func (s *PackStore) GetChannels(name string) ([]model.ChannelInfo, error) {
+	chDir := s.channelsDir(name)
+	if _, err := os.Stat(chDir); os.IsNotExist(err) {
+		// 没有频道目录，自动创建 all 频道
+		os.MkdirAll(chDir, 0755)
+		return s.ensureAllChannel(name)
+	}
+
+	entries, err := os.ReadDir(chDir)
+	if err != nil {
+		return nil, fmt.Errorf("读取频道目录失败: %w", err)
+	}
+
+	var channels []model.ChannelInfo
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		meta, err := s.loadChannelMeta(name, e.Name())
+		if err != nil {
+			// 跳过读不出的条目
+			continue
+		}
+		channels = append(channels, model.ChannelInfo{
+			Name:        meta.Name,
+			DisplayName: meta.DisplayName,
+			Description: meta.Description,
+			Required:    meta.Required,
+			Version:     meta.Version,
+			FileCount:   meta.FileCount,
+			TotalSize:   meta.TotalSize,
+		})
+	}
+
+	if len(channels) == 0 {
+		return s.ensureAllChannel(name)
+	}
+
+	return channels, nil
+}
+
+// ensureAllChannel 确保 all 频道存在（兼容无频道的老包）
+func (s *PackStore) ensureAllChannel(name string) ([]model.ChannelInfo, error) {
+	allMeta := ChannelMeta{
+		Name:        "all",
+		DisplayName: "全部文件",
+		Required:    true,
+		Version:     "",
+	}
+
+	allDir := s.channelDir(name, "all")
+	if err := os.MkdirAll(allDir, 0755); err != nil {
+		return nil, fmt.Errorf("创建 all 频道目录失败: %w", err)
+	}
+
+	if err := s.saveChannelMeta(name, "all", &allMeta); err != nil {
+		return nil, err
+	}
+
+	return []model.ChannelInfo{{
+		Name:        "all",
+		DisplayName: "全部文件",
+		Required:    true,
+		Version:     "",
+	}}, nil
+}
+
+// loadChannelMeta 加载频道元数据
+func (s *PackStore) loadChannelMeta(name, channelName string) (*ChannelMeta, error) {
+	metaPath := filepath.Join(s.channelDir(name, channelName), "meta.json")
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		return nil, err
+	}
+	var meta ChannelMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, err
+	}
+	return &meta, nil
+}
+
+// saveChannelMeta 保存频道元数据
+func (s *PackStore) saveChannelMeta(name, channelName string, meta *ChannelMeta) error {
+	chDir := s.channelDir(name, channelName)
+	if err := os.MkdirAll(chDir, 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+	metaPath := filepath.Join(chDir, "meta.json")
+	return os.WriteFile(metaPath, data, 0644)
 }
 
 // packDirExists 检查包目录是否存在
