@@ -156,10 +156,10 @@ func run(cfgDir string, verbose bool, headless bool, dryRun bool) {
 	}
 
 	// 3. 读取服务端配置，确定目标版本
-	serverCfg, err := mg.LoadServer()
+	vc, err := mg.LoadLocalServerConfig()
 	var targetVersion string
-	if err == nil && serverCfg.Version.ID != "" {
-		targetVersion = serverCfg.Version.ID
+	if err == nil && vc.ID != "" {
+		targetVersion = vc.ID
 		fmt.Printf("[✓] 目标版本: %s (来自 server.json)\n", targetVersion)
 	} else {
 		// 没有 server.json，拉 manifest 用最新 release
@@ -316,10 +316,10 @@ func sync(cfgDir string, verbose bool, dryRun bool) {
 	}
 
 	mg := config.New(cfgDir)
-	serverCfg, err := mg.LoadServer()
+	vc, err := mg.LoadLocalServerConfig()
 	var targetVersion string
-	if err == nil && serverCfg.Version.ID != "" {
-		targetVersion = serverCfg.Version.ID
+	if err == nil && vc.ID != "" {
+		targetVersion = vc.ID
 	} else {
 		targetVersion = manifest.Latest.Release
 	}

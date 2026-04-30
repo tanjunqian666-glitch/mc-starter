@@ -425,27 +425,6 @@ func (m *LibraryManager) ResolveLibrary(lib LibraryEntry) []model.LibraryFile {
 	return files
 }
 
-// DownloadLibrary 下载单个库文件（兼容旧调用）
-// 内部使用 ResolveLibrary + DownloadFiles
-// Deprecated: 新代码使用 ResolveLibrary → DownloadFiles 两阶段流程
-func (m *LibraryManager) DownloadLibrary(lib LibraryEntry) (string, bool, error) {
-	files := m.ResolveLibrary(lib)
-	if len(files) == 0 {
-		return "", false, nil
-	}
-
-	downloaded, skipped, failed := m.DownloadFiles(files)
-	_ = skipped
-
-	if failed > 0 {
-		return "", false, fmt.Errorf("下载库失败: %s", lib.Name)
-	}
-	if downloaded > 0 || skipped > 0 {
-		return files[0].LocalPath, files[0].IsNative, nil
-	}
-	return "", false, nil
-}
-
 // DownloadLibraries 批量下载库文件
 // 使用两阶段流程：ResolveLibrary → DownloadFiles
 // 返回: 成功列表、失败列表

@@ -95,26 +95,8 @@ type LocalConfig struct {
 // 新版通过 REST API 获取，不再使用本地 server.json
 // ============================================================
 
-// ServerConfig 服务端下发配置（已废弃）
-type ServerConfig struct {
-	Version    VersionConfig `json:"version" yaml:"version"`
-	Modpacks   []Modpack     `json:"modpacks,omitempty" yaml:"modpacks,omitempty"`
-	MirrorURL  string        `json:"mirror_url,omitempty" yaml:"mirror_url,omitempty"`
-	SelfUpdate *SelfUpdate   `json:"self_update,omitempty" yaml:"self_update,omitempty"`
-}
-
-// VersionConfig Minecraft 版本配置
-type VersionConfig struct {
-	ID        string `json:"id" yaml:"id"`                             // e.g. "1.20.4"
-	Loader    string `json:"loader,omitempty" yaml:"loader,omitempty"` // "fabric" | "forge" | "quilt" | ""
-	LoaderVer string `json:"loader_version,omitempty" yaml:"loader_version,omitempty"`
-	JavaArgs  string `json:"java_args,omitempty" yaml:"java_args,omitempty"`
-	// Deprecated: 使用 Packs 字段
-}
-
-// Modpack 模组包定义（已废弃，新版使用 PackInfo）
-type Modpack struct {
-	Slug   string   `json:"slug" yaml:"slug"`
-	Source string   `json:"source" yaml:"source"` // "modrinth" | "curseforge" | "url"
-	Files  []string `json:"files,omitempty" yaml:"files,omitempty"`
+// MCVersionConfig 本地 server.json 中的 MC 版本配置
+// 用于 run/sync 命令确定目标 MC 版本
+type MCVersionConfig struct {
+	ID string `json:"id"` // e.g. "1.20.4"
 }

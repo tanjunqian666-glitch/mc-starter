@@ -121,18 +121,21 @@ func (m *Manager) Ping(serverURL string) error {
 // 本地配置读写
 // ============================================================
 
-// LoadServer 加载服务端配置（已废弃，保留兼容）
-func (m *Manager) LoadServer() (*model.ServerConfig, error) {
+// LoadLocalServerConfig 加载本地 server.json（MC 版本配置）
+// 用于 run/sync 命令获取目标 MC 版本
+func (m *Manager) LoadLocalServerConfig() (*model.MCVersionConfig, error) {
 	path := filepath.Join(m.dir, "server.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("读取服务端配置 %s: %w", path, err)
+		return nil, fmt.Errorf("读取 %s: %w", path, err)
 	}
-	var cfg model.ServerConfig
+	var cfg struct {
+		Version model.MCVersionConfig `json:"version"`
+	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("解析服务端配置: %w", err)
+		return nil, fmt.Errorf("解析 %s: %w", path, err)
 	}
-	return &cfg, nil
+	return &cfg.Version, nil
 }
 
 // LoadLocal 加载本地配置
