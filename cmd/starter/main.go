@@ -28,31 +28,25 @@ func parseGlobalFlags() (cfgDir string, verbose, headless, dryRun bool, remainin
 	remainingArgs = os.Args
 
 	// 从 os.Args[1:] 中扫描全局 flag 并剥离
-	var filtered []string
-	filtered = append(filtered, os.Args[0]) // argv[0] 保留
+	filtered := []string{os.Args[0]} // argv[0] 保留
 	skipNext := false
+	// 注意：range os.Args[1:] 产生的 i 从 0 开始，对应 os.Args[1]
 	for i, a := range os.Args[1:] {
 		if skipNext {
 			skipNext = false
 			continue
 		}
-		switch a {
-		case "--config":
-			if i+2 < len(os.Args) {
-				cfgDir = os.Args[i+2]
-				skipNext = true
-			}
-		case "-c":
-			if i+2 < len(os.Args) {
-				cfgDir = os.Args[i+2]
-				skipNext = true
-			}
-		case "--verbose", "-v":
-			verbose = true
-		case "--headless":
+		// 仅匹配以 -- 开头的已知全局 flag
+		switch {
+		case a == "--config" && i+1 < len(os.Args[1:]):
+			cfgDir = os.Args[i+2] // os.Args[1:][i+1] = os.Args[i+2]
+			skipNext = true
+		case a == "--headless":
 			headless = true
-		case "--dry-run":
+		case a == "--dry-run":
 			dryRun = true
+		case a == "--verbose":
+			verbose = true
 		default:
 			filtered = append(filtered, a)
 		}
