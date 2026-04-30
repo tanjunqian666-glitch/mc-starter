@@ -369,9 +369,9 @@ func run(cfgDir string, verbose bool, headless bool, dryRun bool) {
 		versionTargetDir := filepath.Join(versionsDir, versionName)
 
 		// 确定 version name：优先用服务端 display_name，回退到 mc-starter-{packName}
-		versionName := fmt.Sprintf("mc-starter-%s", packName)
 		if detail != nil && detail.DisplayName != "" {
 			versionName = detail.DisplayName
+			versionTargetDir = filepath.Join(versionsDir, versionName)
 		}
 
 		// 确定 inheritsFrom 和 mainClass
@@ -1329,10 +1329,7 @@ func handleUpdateMulti(cfgDir string, verbose, dryRun bool, packName string, upd
 
 		// 提示自动安装
 		if detail.Loader != "" {
-			// 转成 EnsureRequest 格式
-			loaderSpec := fmt.Sprintf("%s-0.16.10", detail.Loader) // 默认版本，实际运行时自动选最新
 			fmt.Printf("   💡 如需自动安装 MC 本体 + %s，运行: starter run\n", detail.Loader)
-			_ = loaderSpec
 		}
 	}
 
@@ -2497,7 +2494,7 @@ func ensureConfig(cfgDir string) error {
 		fmt.Print("使用这个目录？(Y/n): ")
 
 		var answer string
-		fmt.Scanln(&answer)
+		fmt.Scanln(&answer) // 交互式选择：starter init 设计上为交互命令，headless 下不会走到这里
 		answer = strings.TrimSpace(answer)
 		if answer == "" || answer == "y" || answer == "Y" || answer == "yes" || answer == "Yes" {
 			local.MinecraftDirs["_default"] = first

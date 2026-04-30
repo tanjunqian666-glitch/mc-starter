@@ -136,6 +136,7 @@ go build -o mc-starter-server ./cmd/mc-starter-server/
 | P6 频道体系（多频道 + 可选安装） | ✅ 完成 |
 | GUI（walk） | ✅ Windows 完整测试通过 |
 | P5 启动器感知（检测 + 目录识别 + 贯通） | ✅ 全部完成 |
+| 代码审计 + 变量参考表 | ✅ 2026-05-02 完成 |
 
 ## 许可证
 

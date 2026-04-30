@@ -124,7 +124,8 @@ go build -o mc-starter-server ./cmd/mc-starter-server/
 | P6 Channel system (multi-channel + optional install) | ✅ Done |
 | GUI (walk native Windows) | ✅ Windows tested |
 | P5 Launcher awareness (detect + dir identify + integration) | ✅ Done |
-| S10 Full integration: sync + loader + pack update | 🚧 Code complete, run merge pending |
+| S10 Full integration: sync + loader + pack update | ✅ Code complete, run merge pending |
+| Code audit 2026-05-02: shadowing fix, var ref table | ✅ Complete |
 
 ## License
 
