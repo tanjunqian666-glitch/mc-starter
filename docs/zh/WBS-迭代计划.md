@@ -300,17 +300,18 @@ P5.3.④ MinecraftDirs 多值化        → 45m  ✅
 P5.3.⑤ resolveDir()                → 20m  ✅
 P5.3.⑥ FindSuspectedDuplicates()   → 15m  ✅
 P5.3.⑦ 修 detectLauncher() bug     → 10m  ✅
-P5.3.⑧ GUI 向导 MC 目录下拉框      → 1h   ⏸️ 待VM
-P5.3.⑨ GUI 设置+副版本目录下拉框    → 1h   ⏸️ 待VM
+P5.3.⑧ GUI 向导 MC 目录下拉框      → 1h   ✅
+P5.3.⑨ GUI 设置+副版本目录下拉框    → 1h   ✅
 P5.3.⑩ CLI pcl detect/set-dir     → 30m  ✅
 P5.3.⑪ CLI check 加检测            → 15m  ✅
 P5.3.⑫ CLI run 写回配置            → 15m  ✅
 P5.3.⑬ 收冗余 finder.go            → 10m  ⏸️ 低优
 ─────────────────────────────
-里程碑 M8：启动器感知流程贯通 ✅ (10/14)
+里程碑 M8：启动器感知流程贯通 ✅ (12/14)
   CLI starter check / pcl detect / run / set-dir 全链路贯通
   RepoMeta + IsManaged + MinecraftDirs 多值化
-  GUI 向导/设置待Windows VM继续
+  GUI 向导+设置 MC 目录改为下拉框，标注[已托管]/[未托管]
+  副版本启用后显示独立 MC 目录下拉框（walk ComboBox）
 ```
 
 ---

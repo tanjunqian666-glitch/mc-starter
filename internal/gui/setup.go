@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gege-tlph/mc-starter/internal/launcher"
 	"github.com/lxn/walk"
@@ -31,11 +32,74 @@ func runSetupWizard(a *App) {
 	// 各步骤输入控件
 	var apiEdit *walk.LineEdit
 	var launchEdit *walk.LineEdit
-	var mcEdit *walk.LineEdit
+	var mcCB *walk.ComboBox     // MC 目录下拉框
 	var page0, page1, page2 *walk.Composite
 
 	// 自动检测 & 手动选择
 	var detectLaunchBtn, pickLaunchBtn, detectMCBtn, pickMCBtn *walk.PushButton
+
+	// MC 目录下拉模型 — 使用包级 mcDirItem 类型
+	//（定义见 settings.go）
+	var mcDirItems []mcDirItem
+
+	// 刷新 MC 目录下拉列表
+	refreshMCDirs := func() {
+		dirs := launcher.FindMinecraftDirs()
+		managed, raw := launcher.IsManagedDirs(dirs)
+
+		// 收集所有可用的目录，去重
+		seen := make(map[string]bool)
+		mcDirItems = nil
+
+		// 已托管的优先
+		for _, m := range managed {
+			if seen[m.Path] {
+				continue
+			}
+			seen[m.Path] = true
+			suffix := "[已托管]"
+			if len(m.Packs) > 0 {
+				suffix = fmt.Sprintf("[已托管: %s]", strings.Join(m.Packs, ", "))
+			}
+			mcDirItems = append(mcDirItems, mcDirItem{
+				Label: m.Path + "  " + suffix,
+				Path:  m.Path,
+			})
+		}
+
+		// 未托管的
+		for _, r := range raw {
+			if seen[r] {
+				continue
+			}
+			seen[r] = true
+			mcDirItems = append(mcDirItems, mcDirItem{
+				Label: r + "  [未托管]",
+				Path:  r,
+			})
+		}
+
+		// 回退：如果什么都没检测到，给个手动输入提示
+		if len(mcDirItems) == 0 {
+			mcDirItems = append(mcDirItems, mcDirItem{
+				Label: "(未检测到，请手动选择)",
+				Path:  "",
+			})
+		}
+
+		// 更新 ComboBox 模型
+		labels := make([]string, len(mcDirItems))
+		for i, item := range mcDirItems {
+			labels[i] = item.Label
+		}
+		mcCB.SetModel(labels)
+
+		// 默认选中第一个已托管的，否则选第一个
+		mcCB.SetCurrentIndex(0)
+		if len(mcDirItems) > 0 {
+			mcDir = mcDirItems[0].Path
+		}
+	}
 
 	// 步骤标题
 	stepTitles := []string{
@@ -85,7 +149,27 @@ func runSetupWizard(a *App) {
 		dlg2 := new(walk.FileDialog)
 		dlg2.Title = "选择 Minecraft 根目录"
 		if ok, _ := dlg2.ShowBrowseFolder(dlg); ok {
-			mcEdit.SetText(dlg2.FilePath)
+			picked := dlg2.FilePath
+			// 检查是否已在列表中
+			for i, item := range mcDirItems {
+				if item.Path == picked {
+					mcCB.SetCurrentIndex(i)
+					mcDir = picked
+					return
+				}
+			}
+			// 不在列表中则添加到最前面并选中
+			newItems := make([]mcDirItem, 0, len(mcDirItems)+1)
+			newItems = append(newItems, mcDirItem{Label: picked + "  [手动添加]", Path: picked})
+			newItems = append(newItems, mcDirItems...)
+			mcDirItems = newItems
+			labels := make([]string, len(mcDirItems))
+			for i, item := range mcDirItems {
+				labels[i] = item.Label
+			}
+			mcCB.SetModel(labels)
+			mcCB.SetCurrentIndex(0)
+			mcDir = picked
 		}
 	}
 
@@ -140,25 +224,34 @@ func runSetupWizard(a *App) {
 				},
 			},
 
-			// Step 2: MC 目录
+			// Step 2: MC 目录（下拉框选择）
 			Composite{
 				AssignTo: &page2,
 				Layout:   VBox{},
 				Visible:  false,
 				Children: []Widget{
-					Label{Text: "Minecraft 根目录:"},
+					Label{Text: "Minecraft 根目录（自动检测）："},
+					ComboBox{
+						AssignTo: &mcCB,
+						MinSize:  Size{360, 0},
+						OnCurrentIndexChanged: func() {
+							idx := mcCB.CurrentIndex()
+							if idx >= 0 && idx < len(mcDirItems) {
+								mcDir = mcDirItems[idx].Path
+							}
+						},
+					},
 					Composite{
 						Layout: HBox{},
 						Children: []Widget{
-							LineEdit{AssignTo: &mcEdit, MinSize: Size{260, 0}},
 							PushButton{
 								AssignTo:  &detectMCBtn,
-								Text:      "🔍 自动检测",
-								OnClicked: func() { go func() { d := detectMinecraftDir(); dlg.Synchronize(func() { mcEdit.SetText(d) }) }() },
+								Text:      "🔍 刷新检测",
+								OnClicked: func() { refreshMCDirs() },
 							},
 							PushButton{
 								AssignTo:  &pickMCBtn,
-								Text:      "📁 手动选择",
+								Text:      "📁 手动选择（不在列表中时）",
 								OnClicked: pickMCDir,
 							},
 						},
@@ -230,28 +323,25 @@ func runSetupWizard(a *App) {
 								step = 2
 								showStep(2)
 
-								// 自动检测 MC 目录
-								go func() {
-									detected := detectMinecraftDir()
-									if detected != "" {
-										dlg.Synchronize(func() {
-											mcEdit.SetText(detected)
-											mcDir = detected
-										})
-									}
-								}()
+												// 自动刷新 MC 目录下拉列表
+								refreshMCDirs()
 
 							case 2:
-								md := mcEdit.Text()
-								if md == "" {
-									walk.MsgBox(dlg, "提示", "请输入 Minecraft 根目录", walk.MsgBoxOK)
+								if mcDir == "" {
+									// 尝试从下拉框取
+									idx := mcCB.CurrentIndex()
+									if idx >= 0 && idx < len(mcDirItems) {
+										mcDir = mcDirItems[idx].Path
+									}
+								}
+								if mcDir == "" {
+									walk.MsgBox(dlg, "提示", "请选择或手动输入 Minecraft 根目录", walk.MsgBoxOK)
 									return
 								}
-								if _, err := os.Stat(md); os.IsNotExist(err) {
+								if _, err := os.Stat(mcDir); os.IsNotExist(err) {
 									walk.MsgBox(dlg, "提示", "目录不存在，请重新选择", walk.MsgBoxOK)
 									return
 								}
-								mcDir = md
 								step = 3
 								showStep(3)
 								nextPB.SetText("完成")
@@ -260,7 +350,7 @@ func runSetupWizard(a *App) {
 								a.Lock()
 								a.localCfg.ServerURL = serverURL
 								a.localCfg.Launcher = launcherPath
-								a.localCfg.MinecraftDir = mcDir
+								a.localCfg.SetMinecraftDir("", mcDir)
 								a.Unlock()
 								a.cfg.SaveLocal(a.localCfg)
 
@@ -304,26 +394,6 @@ func detectLauncher() string {
 	}
 	// 也搜一下 HMCL
 	// 目前 FindPCL2 已覆盖常见路径
-	return ""
-}
-
-// detectMinecraftDir 自动搜索 .minecraft 目录
-func detectMinecraftDir() string {
-	// 搜索常见位置
-	candidates := []string{
-		// APPDATA/.minecraft
-		filepath.Join(os.Getenv("APPDATA"), ".minecraft"),
-		filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Roaming", ".minecraft"),
-		// PCL2 同目录
-		filepath.Join(".minecraft"),
-	}
-
-	for _, dir := range candidates {
-		verDir := filepath.Join(dir, "versions")
-		if info, err := os.Stat(verDir); err == nil && info.IsDir() {
-			return dir
-		}
-	}
 	return ""
 }
 
