@@ -43,6 +43,8 @@ type Manifest struct {
 	Files     []FileEntry `json:"files"`      // 所有文件
 	FileCount int         `json:"file_count"`
 	TotalSize int64       `json:"total_size"`
+	MCVersion string      `json:"mc_version,omitempty"` // 所需 MC 版本（如 "1.21.1"），客户端用此版本下载本体
+	Loader    string      `json:"loader,omitempty"`      // 所需加载器版本，格式 "<type>-<ver>"（如 "fabric-0.16.10"），空=vanilla
 }
 
 // Diff 两个版本间的差异
@@ -105,6 +107,10 @@ func ImportZip(zipPath, repoDir, version string) (*ImportResult, error) {
 
 	// 尝试推断 MC 版本和 Loader
 	mcVersion, loader := inferFromMods(manifest)
+
+	// 将推断结果写入 Manifest，使 publish 后持久化保留
+	manifest.MCVersion = mcVersion
+	manifest.Loader = loader
 
 	// 加载上一版本的 manifest
 	prevManifest, prevVersion := loadLatestPublished(repoDir)

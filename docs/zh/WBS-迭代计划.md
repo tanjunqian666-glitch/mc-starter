@@ -1,6 +1,6 @@
 # MC 版本更新器 — WBS 工作分解 + 迭代计划
 
-> **项目状态**：P1 ✅ | P2 ✅ | P3 ✅ | P0x ✅ | P6 ✅ | **P5 全部完成 ✅** | **下一阶段：待规划**
+> **项目状态**：P1 ✅ | P2 ✅ | P3 ✅ | P0x ✅ | P6 ✅ | **P5 全部完成 ✅** | **下一阶段：端到端链路整合（2026-05-01 复盘）**
 
 ---
 
@@ -128,8 +128,8 @@ P5 启动器感知 (4h)     ◄────────────┘
 | P0x.3 | REST API v1：客户端端点（版本查询/增量/下载） | 4h | ✅ `internal/server/handlers.go` |
 | P0x.4 | REST API v1：管理端点（创建包/导入/publish/列表） | 4h | ✅ `internal/server/handlers.go` |
 | P0x.5 | 客户端 SDK：starter update 对接 server API | 3h | ✅ `config.Manager` 统一 API，`update.go` 移除了重复的 `httpUpdateAPI` |
-| P0x.6 | 认证：简单 token 认证 + 管理端鉴权 | 2h | ⏳ `server.go` 已有 `requireAdmin` 骨架 |
-| P0x.7 | 部署：配置文件 + Dockerfile + 默认配置 | 2h | ⏳ `config.go` 已有 `DefaultConfig()` |
+| P0x.6 | 认证：简单 token 认证 + 管理端鉴权 | 2h | ✅ `requireClientToken` + `requireAdmin` 双中间件部署 |
+| P0x.7 | 部署：配置文件 + Dockerfile + 默认配置 | 2h | ✅ Dockerfile（多阶段 alpine）+ docker-compose.yml + server.example.yml + 环境变量覆盖 |
 
 > **现状**：`internal/pack/pack.go` 已实现 zip 导入/diff/publish 逻辑，P0x 负责将其包装为 HTTP API + 多包索引。
 > `internal/launcher/update.go` 已实现客户端增量更新逻辑，P0x 负责将 server.json 拉取改为 API 调用。
@@ -310,6 +310,27 @@ P5.3.⑬ 收冗余 finder.go            → 10m  ✅
   RepoMeta + IsManaged + MinecraftDirs 多值化
   GUI 向导+设置 MC 目录改为下拉框，标注[已托管]/[未托管]
   副版本启用后显示独立 MC 目录下拉框（walk ComboBox）
+
+### 📋 Sprint 10（数据链路 + 端到端整合 — 2026-05-01 复盘启动）
+
+```
+S10.1 数据链路补全
+├── pack.Manifest 加 MCVersion/Loader字段           → 30m  ✅ 已改
+├── IncrementalUpdate 模型加 MCVersion/Loader字段   → 15m  ⏳
+├── 服务端 update API 返回 mc_version + loader      → 15m  ⏳
+└── ImportZip 存入 Manifest                          → 10m  ✅ 已改
+
+S10.2 客户端编排
+├── 新增 EnsureVersion() 函数（sync + loader install）→ 2h   ⏳
+├── starter run 重写（6 步流程）                    → 2h   ⏳
+├── handleUpdate 自动检测 loader 并提示/安装         → 1h   ⏳
+└── packs/ → versions/ 合并逻辑                     → 2h   ⏳
+
+S10.3 文档/测试对齐
+├── 更新 WBS/README 状态                             → 30m  ⏳
+├── 审查过时测试（finder/incr_sync）                  → 1h   ⏳
+└── 复盘审视报告已输出（docs/zh/业务逻辑审视-2026-05-01.md）  ✅
+```
 ```
 
 ---

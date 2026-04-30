@@ -83,11 +83,13 @@ func (s *Server) handleGetUpdate(w http.ResponseWriter, r *http.Request) {
 	if fromVersion == "" {
 		// 没有 from 参数，返回全量信息
 		writeJSON(w, http.StatusOK, map[string]any{
-			"version":     latestVersion,
+			"version":      latestVersion,
 			"from_version": "",
-			"mode":        "full",
-			"file_count":  latestManifest.FileCount,
-			"total_size":  latestManifest.TotalSize,
+			"mode":         "full",
+			"file_count":   latestManifest.FileCount,
+			"total_size":   latestManifest.TotalSize,
+			"mc_version":   latestManifest.MCVersion,
+			"loader":       latestManifest.Loader,
 		})
 		return
 	}
