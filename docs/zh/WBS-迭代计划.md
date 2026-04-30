@@ -16,10 +16,11 @@
 | | **代码自查与质量规范.md** | 编码规范、提交规范 |
 | | **构建与CI.md** | 构建流程、CI/CD、发布 |
 | | **详细开发流程.md** | P0→P5 逐阶段开发步骤 |
-| **P0x** | 服务端设计（本文件 §八 + 新增） | REST API + 多包管理 + 认证 |
+| **P0x** | 服务端设计（本文件 §八 + 新增） | REST API + 多包管理 + 认证 + 存储抽象 |
 | **P0x** | **服务端架构与部署.md** | 独立 server + REST API + 部署 |
 | | **客户端与服务端通信.md** | API 契约、同步流程、错误处理 |
 | | **多包管理手册.md** | 主包/副包/启用/禁用/卸载 |
+| | **SQLite存储迁移计划.md** | ⭐ 存储抽象 + SQLite 迁移方案 |
 | **P0** | 错误处理与安全设计.md | 全局错误类型 + 安全策略 |
 | **P1** | 本地版本仓库与增量同步.md | 仓库结构、增量 diff、快照策略 |
 | | 模组与配置同步策略.md | mods/conf 同步方案 |
@@ -51,7 +52,8 @@
 | **服务端配置** | `internal/server/config.go` | P0x.1 |
 | **服务端路由+中间件** | `internal/server/server.go` | P0x.1, P0x.6 |
 | **服务端 API handlers** | `internal/server/handlers.go` | P0x.3, P0x.4 |
-| **包索引管理** | `internal/server/pack_store.go` | P0x.2 |
+| **存储抽象接口** | `internal/server/store.go` | P0x.2（PackStoreIface + NewStore 工厂） |
+| **包索引管理** | `internal/server/pack_store.go` | P0x.2（文件系统 JSON 实现） |
 | CLI 入口 / 子命令 | `cmd/starter/main.go` | P0.2, P1.15, 全部 |
 | 版本清单拉取 | `internal/launcher/version_manifest.go` | P1.1 |
 | version.json 解析 + client.jar | `internal/launcher/version.go` | P1.2 |
@@ -248,6 +250,7 @@ P5 启动器兼容            → 6h
 P6 频道体系              → 8h
 QA 手动测试+README       → 6h
 P3 自更新                → 12h
+SQLite 存储迁移          → 4h  (store.go 接口已埋好)
 ─────────────────────────────
 里程碑 M5：v1.0 发布
 ```
