@@ -56,9 +56,6 @@ type App struct {
 
 // Run 启动 GUI
 func Run(cfgDir string) error {
-	// 启用 DPI 感知，确保高分辨率下字体不模糊
-	walk.SetDPIAware(true)
-
 	app := &App{
 		cfgDir:     cfgDir,
 		cfg:        config.New(cfgDir),
