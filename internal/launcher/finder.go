@@ -241,7 +241,12 @@ func (f *VersionFinder) findViaFallback(remaining map[string]bool, results map[s
 	}
 
 	if len(remaining) > 0 {
-		logger.Info("以下版本未在用户电脑中找到: %v", keys(remaining))
+		var ks []string
+		for k := range remaining {
+			ks = append(ks, k)
+		}
+		sort.Strings(ks)
+		logger.Info("以下版本未在用户电脑中找到: %v", ks)
 	}
 }
 
@@ -258,45 +263,24 @@ func FindVersionDir(cfg *model.LocalConfig, versionName string) string {
 
 // FindMinecraftDirs 查找用户电脑上的所有 .minecraft 目录
 // 自动尝试 PCL 配置和默认路径
+// 底层复用 ResolveMinecraftDirs（repo.go）的完整扫描逻辑
 func FindMinecraftDirs() []string {
-	dirs := make(map[string]bool)
-	var ordered []string
-
-	// 1. 从 PCL 配置读
-	if pcl := FindPCL2(); pcl != nil {
-		cfg, err := pcl.ReadPCLConfig()
-		if err == nil {
-			for _, d := range cfg.MinecraftDirs {
-				d = filepath.Clean(d)
-				if !dirs[d] {
-					dirs[d] = true
-					ordered = append(ordered, d)
-				}
-			}
+	managed, raw := ResolveMinecraftDirs()
+	var all []string
+	seen := make(map[string]bool)
+	for _, m := range managed {
+		if !seen[m.Path] {
+			seen[m.Path] = true
+			all = append(all, m.Path)
 		}
 	}
-
-	// 2. 默认路径
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "."
-	}
-	defaults := []string{
-		filepath.Join(home, ".minecraft"),
-		filepath.Join(home, "AppData", "Roaming", ".minecraft"),
-		".minecraft",
-	}
-	for _, d := range defaults {
-		d = filepath.Clean(d)
-		if info, err := os.Stat(d); err == nil && info.IsDir() {
-			if !dirs[d] {
-				dirs[d] = true
-				ordered = append(ordered, d)
-			}
+	for _, d := range raw {
+		if !seen[d] {
+			seen[d] = true
+			all = append(all, d)
 		}
 	}
-
-	return ordered
+	return all
 }
 
 // VersionDirExists 检查某个版本的目录是否存在
@@ -327,15 +311,4 @@ func FindLatestVersionDir(mcDirs []string, versionName string) string {
 
 	return bestDir
 }
-
-// keys 返回 map 的 key 切片
-func keys(m map[string]bool) []string {
-	var ks []string
-	for k := range m {
-		ks = append(ks, k)
-	}
-	sort.Strings(ks)
-	return ks
-}
-
 
