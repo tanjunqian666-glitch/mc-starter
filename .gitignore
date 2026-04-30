@@ -41,3 +41,4 @@ config/local.json
 # Dependency
 # go.sum is committed for reproducible builds (go 1.22+)
 #.tracking/
+/mc-starter-server

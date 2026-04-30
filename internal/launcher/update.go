@@ -539,4 +539,144 @@ func extractZip(zipPath, destDir string) error {
 	return nil
 }
 
-// copyFile 复制文件
+// ============================================================
+// MC 版本 + Loader 安装编排（Sprint 10 新增）
+// ============================================================
+
+// EnsureRequest 描述需要确保的 MC 版本环境
+type EnsureRequest struct {
+	MCVersion  string // 如 "1.21.1"
+	Loader     string // 如 "fabric-0.16.10" 或 ""（纯原版）
+	VersionDir string // versions/ 目录路径
+	LibraryDir string // libraries/ 目录路径
+}
+
+// EnsureVersion 确保指定 MC 版本 + Loader 已安装
+// 内部调用 sync 组件 + fabric install，对外是一条原子操作
+func (u *Updater) EnsureVersion(req EnsureRequest) error {
+	// 1. 确保 MC 本体已安装（client.jar + libraries）
+	vm := u.newVersionMetaManager(req.MCVersion)
+	meta, err := vm.Fetch(req.MCVersion)
+	if err != nil {
+		return fmt.Errorf("获取 %s 版本元数据失败: %w", req.MCVersion, err)
+	}
+
+	// 下载 client.jar
+	jarPath := filepath.Join(req.VersionDir, req.MCVersion, fmt.Sprintf("%s.jar", req.MCVersion))
+	if _, err := os.Stat(jarPath); os.IsNotExist(err) {
+		logger.Info("[Ensure] 下载 client.jar: %s", req.MCVersion)
+		if err := os.MkdirAll(filepath.Dir(jarPath), 0755); err != nil {
+			return fmt.Errorf("创建版本目录失败: %w", err)
+		}
+		downloaded, err := vm.DownloadClientJar(meta, filepath.Dir(filepath.Dir(jarPath)))
+		if err != nil {
+			return fmt.Errorf("下载 client.jar 失败: %w", err)
+		}
+		jarPath = downloaded
+		logger.Info("[Ensure] client.jar 下载完成: %s", jarPath)
+	} else {
+		logger.Info("[Ensure] client.jar 已存在: %s", jarPath)
+	}
+
+	// 下载 libraries
+	lm := libraryManager(u.cfgDir, req.LibraryDir)
+	resolvedLibs, err := vm.ResolveLibraries(meta, req.VersionDir)
+	if err != nil {
+		logger.Warn("[Ensure] 解析 libraries 失败（非致命）: %v", err)
+	} else if len(resolvedLibs) > 0 {
+		libFiles := lm.ResolveToFiles(resolvedLibs)
+		toDownload, _ := partitionLibFiles(libFiles) // 只下载不存在的
+		downloaded, skipped, failed := lm.DownloadFiles(toDownload)
+		logger.Info("[Ensure] Libraries: %d 下载, %d 已存在, %d 失败", downloaded, skipped, failed)
+		extracted, _ := lm.ExtractNativesFromFiles(libFiles)
+		logger.Info("[Ensure] Natives 解压完成: %d 文件", extracted)
+	}
+
+	// 2. 如果需要 Loader，安装
+	if req.Loader != "" {
+		loaderType, loaderVer := parseLoaderSpec(req.Loader)
+		switch loaderType {
+		case "fabric":
+			if err := u.ensureFabric(req, meta, loaderVer); err != nil {
+				return fmt.Errorf("安装 Fabric %s/%s 失败: %w", req.MCVersion, loaderVer, err)
+			}
+		case "forge", "neoforge":
+			// TODO: Forge/NeoForge 支持
+			logger.Warn("[Ensure] %s loader 安装尚未实现，跳过", loaderType)
+		default:
+			logger.Warn("[Ensure] 未知 loader 类型: %s，跳过", loaderType)
+		}
+	}
+
+	logger.Info("[Ensure] MC %s%s 安装完成", req.MCVersion,
+		map[bool]string{true: " + " + req.Loader, false: ""}[req.Loader != ""])
+	return nil
+}
+
+// newVersionMetaManager 创建临时的 VersionMetaManager
+func (u *Updater) newVersionMetaManager(version string) *VersionMetaManager {
+	manifestDir := filepath.Join(u.cfgDir, ".cache", "manifest")
+	versionsDir := filepath.Join(u.cfgDir, ".cache", "versions")
+	mm := NewVersionManifestManager(manifestDir)
+	return NewVersionMetaManager(versionsDir, mm)
+}
+
+// libraryManager 创建临时的 LibraryManager
+func libraryManager(cfgDir, libraryDir string) *LibraryManager {
+	nativesDir := filepath.Join(cfgDir, "versions", "_natives")
+	return NewLibraryManager(libraryDir, nativesDir)
+}
+
+// parseLoaderSpec 解析 loader 规格 "fabric-0.16.10" → ("fabric", "0.16.10")
+func parseLoaderSpec(spec string) (loaderType, loaderVer string) {
+	idx := strings.Index(spec, "-")
+	if idx < 0 {
+		return spec, ""
+	}
+	return spec[:idx], spec[idx+1:]
+}
+
+// ensureFabric 安装 Fabric loader
+func (u *Updater) ensureFabric(req EnsureRequest, meta *VersionMeta, loaderVer string) error {
+	// 如果未指定 loader 版本，自动选最新
+	installer := NewFabricInstaller(req.MCVersion, loaderVer, req.VersionDir, req.LibraryDir)
+	installer.SetMirror(true)
+
+	if loaderVer == "" {
+		selected, err := installer.SelectLatestLoader()
+		if err != nil {
+			return fmt.Errorf("获取最新 Fabric loader 版本失败: %w", err)
+		}
+		loaderVer = selected
+		logger.Info("[Ensure] 自动选择 Fabric loader: %s", loaderVer)
+		// 重建 installer
+		installer = NewFabricInstaller(req.MCVersion, loaderVer, req.VersionDir, req.LibraryDir)
+		installer.SetMirror(true)
+	}
+
+	result, err := installer.Install()
+	if err != nil {
+		return fmt.Errorf("Fabric 安装失败: %w", err)
+	}
+	logger.Info("[Ensure] Fabric %s-%s 安装完成（%d 下载，%d 已存在）",
+		req.MCVersion, result.LoaderVersion, result.Downloaded, result.Skipped)
+
+	// 验证
+	missing, _ := installer.VerifyInstallation(result.VersionID)
+	if len(missing) > 0 {
+		logger.Warn("[Ensure] Fabric 安装后 %d 个文件缺失: %v", len(missing), missing)
+	}
+	return nil
+}
+
+// partitionLibFiles 将库文件列表分为"需下载"和"已存在"
+func partitionLibFiles(files []model.LibraryFile) (toDownload []model.LibraryFile, cached int) {
+	for _, f := range files {
+		if _, err := os.Stat(f.LocalPath); os.IsNotExist(err) {
+			toDownload = append(toDownload, f)
+		} else {
+			cached++
+		}
+	}
+	return
+}
