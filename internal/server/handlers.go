@@ -263,6 +263,8 @@ func (s *Server) handleUpdatePackConfig(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		DisplayName string `json:"display_name,omitempty"`
 		Description string `json:"description,omitempty"`
+		MCVersion   string `json:"mc_version,omitempty"`  // MC 版本（如 "1.21.1"），空=不修改
+		Loader      string `json:"loader,omitempty"`       // Loader 完整规格（如 "fabric-0.15.0"），空=不修改
 		Primary     *bool  `json:"primary,omitempty"`
 	}
 
@@ -271,10 +273,12 @@ func (s *Server) handleUpdatePackConfig(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// 当前简化实现：更新只通过 Publish 的 primary 参数处理
-	// 完整实现需要 Store 支持更新元数据字段
-	_ = name
-	_ = req
+	// 更新 Manifest 配置（publish 后的版本）
+	store := s.store
+	if err := store.UpdatePackConfig(name, req.MCVersion, req.Loader); err != nil {
+		writeError(w, http.StatusInternalServerError, "UPDATE_FAILED", err.Error())
+		return
+	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status": "ok",

@@ -27,6 +27,7 @@ type PackStoreIface interface {
 	GetPack(name string) (*model.PackDetail, error)
 	UpdateLatestVersion(name, version string) error
 	UpdateDisplayName(name, displayName string) error
+	UpdatePackConfig(name, mcVersion, loader string) error
 
 	// 频道管理（P6）
 	CreateChannel(name, channelName, displayName, description string, required bool, dirs []string) error

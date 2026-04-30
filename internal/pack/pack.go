@@ -538,7 +538,9 @@ func inferVersion(zipPath string) string {
 }
 
 func inferFromMods(manifest *Manifest) (mcVersion, loader string) {
-	// 从 mods/ 目录的文件名推断 MC 版本和 Loader
+	// 从 mods/ 目录的文件名推断 MC 版本和 Loader 类型
+	// ⚠️ 注意：loader 只推断类型（如 "fabric"），版本号无法从文件名获得
+	// 管理员需通过服务端 API 手动补全为完整格式（如 "fabric-0.15.0"）
 	for _, f := range manifest.Files {
 		if !strings.HasPrefix(f.Path, "mods/") {
 			continue

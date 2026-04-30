@@ -220,7 +220,55 @@ func (s *PackStore) UpdateDisplayName(name, displayName string) error {
 	return s.saveIndex()
 }
 
-// PackDir 返回包的文件存储目录
+// UpdatePackConfig 更新已发布版本的 mc_version 和 loader 元数据
+// mcVersion 或 loader 为空字符串表示不修改对应字段
+func (s *PackStore) UpdatePackConfig(name, mcVersion, loader string) error {
+	m, exists := s.index.Packs[name]
+	if !exists {
+		return fmt.Errorf("整合包 '%s' 不存在", name)
+	}
+	if m.LatestVersion == "" {
+		return fmt.Errorf("整合包 '%s' 没有已发布的版本", name)
+	}
+
+	// 读取当前版本 manifest.json
+	manifestPath := filepath.Join(s.PackDir(name), "versions", m.LatestVersion, "manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("读取 manifest 失败: %w", err)
+	}
+
+	var manifest pack.Manifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return fmt.Errorf("解析 manifest 失败: %w", err)
+	}
+
+	modified := false
+	if mcVersion != "" && mcVersion != manifest.MCVersion {
+		manifest.MCVersion = mcVersion
+		modified = true
+	}
+	// loader="" 不修改，但允许显式设为空字符串来清除 loader
+	if loader != "" && loader != manifest.Loader {
+		manifest.Loader = loader
+		modified = true
+	}
+
+	if !modified {
+		return nil
+	}
+
+	// 写回 manifest.json
+	updated, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("序列化 manifest 失败: %w", err)
+	}
+	if err := os.WriteFile(manifestPath, updated, 0644); err != nil {
+		return fmt.Errorf("写入 manifest 失败: %w", err)
+	}
+
+	return nil
+}
 func (s *PackStore) PackDir(name string) string {
 	if name == "" {
 		return ""
