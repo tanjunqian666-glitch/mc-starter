@@ -1298,6 +1298,15 @@ func runDaemon(args []string, cfgDir string) {
 	fmt.Printf("轮询间隔: %v\n", *pollInterval)
 	fmt.Println("按 Ctrl+C 退出守护")
 
+	// 解析 --config 参数（传给修复工具的子进程）
+	var daemonCfgArgs []string
+	for i, a := range args {
+		if a == "--config" && i+1 < len(args) {
+			daemonCfgArgs = []string{"--config", args[i+1]}
+			break
+		}
+	}
+
 	// 创建守护
 	d := repair.NewDaemon(repair.DaemonConfig{
 		MinecraftDir: installPath,
@@ -1308,6 +1317,16 @@ func runDaemon(args []string, cfgDir string) {
 				if ev, ok := data.(repair.CrashEvent); ok {
 					fmt.Printf("\n[崩溃检测] %s (%s)\n", ev.Reason, ev.Type)
 					fmt.Printf("  文件: %s\n", ev.FilePath)
+
+					// P2.14: 弹窗询问用户是否打开修复工具
+					launched, err := repair.PromptCrashRepair(ev, daemonCfgArgs)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "\n[崩溃弹窗错误] %v\n", err)
+					} else if launched {
+						fmt.Println("\n[崩溃处理] 已启动修复工具")
+					} else {
+						fmt.Println("\n[崩溃处理] 用户忽略，继续监控")
+					}
 				}
 			case repair.EventLogError:
 				if s, ok := data.(string); ok {
