@@ -1,6 +1,6 @@
 # MC 版本更新器 — WBS 工作分解 + 迭代计划
 
-> **项目状态**：P1 全部完成 ✅ | P2 全部完成 ✅ | P5 全部完成 ✅ | **P0x 文档/代码适配完成 ✅ | 下一步：P0x 服务端骨架编码**
+> **项目状态**：P1 全部完成 ✅ | P2 全部完成 ✅ | P5 全部完成 ✅ | **P0x 文档/代码适配完成 ✅ | GUI 框架完成（walk 替换 TUI）✅ | 下一步：P0x 服务端骨架编码**
 > **外部参考**见文末 §七（MCUpdater）
 
 ---
@@ -28,7 +28,7 @@
 | | API接口文档.md | 服务端 API 端点 |
 | | JSON-Schema与测试用例.md | manifest/server JSON Schema |
 | **P2** | 修复与备份系统.md | 备份策略、修复流程、回滚 |
-| | 修复工具GUI界面.md | TUI 界面设计 |
+| | GUI界面设计.md | Windows 原生 GUI 设计（walk） |
 | | 崩溃监控与自动修复.md | 崩溃检测、静默守护、PCL2 借鉴对比 |
 | **P6** | 更新频道（Channel）设计（新建） | 多包多频道、可选安装 |
 | **P5** | PCL2集成方案.md | PCL2 集成模式 |
@@ -61,7 +61,7 @@
 | 客户端增量更新 | `internal/launcher/update.go` | P1.15 |
 | PCL2 检测 | `internal/launcher/pcl_detect.go` | P5.2 (已超前写) |
 | 版本查找器 | `internal/launcher/finder.go` | P5.1 (已超前写) |
-| TUI 全自动界面 | `internal/tui/` | P2.12 (已超前写) |
+| GUI 界面 (walk) | `internal/gui/` | P2.12/P2.14 (替代) |
 | 服务端包管理 | `internal/pack/pack.go` | P1.12-P1.14 |
 | 配置读写 | `internal/config/config.go` | P0.3 |
 | 镜像选择 | `internal/mirror/mirror.go` | P0.4 |
@@ -158,9 +158,9 @@ P3 自更新 (2d)          ◄───────────┘
 | P2.9 | 静默守护：后台轮询+日志监听+崩溃验证 | 4h | ✅ `internal/repair/daemon.go` + `daemon_test.go` |
 | P2.10 | 崩溃报告上传（改为 API 上报） | 2h | 📋 待启动（对接 P0x 后） |
 | P2.11 | 修复后自动同步 | 2h | 📋 待启动 |
-| P2.12 | 修复 TUI 界面（bubbletea） | 4h | 📋 待启动 |
+| P2.12 | ~~修复 TUI 界面（bubbletea）~~ | ❌ 已砍 | 已被 walk GUI 替代 |
 | P2.13 | 托盘菜单入口 | 2h | 📋 待启动 |
-| P2.14 | Windows 弹窗兜底（无终端） | 2h | 📋 待启动 |
+| P2.14 | ~~Windows 弹窗兜底（无终端）~~ | ❌ 已砍 | GUI 原生窗口无此问题 |
 | P2.15 | 修复后 PCL2 刷新 | 1h | 📋 待启动 |
 
 ### P3：自更新 — 📋 待启动

@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/gege-tlph/mc-starter/internal/config"
+	"github.com/gege-tlph/mc-starter/internal/gui"
 	"github.com/gege-tlph/mc-starter/internal/launcher"
 	"github.com/gege-tlph/mc-starter/internal/logger"
 	"github.com/gege-tlph/mc-starter/internal/model"
 	"github.com/gege-tlph/mc-starter/internal/pack"
 	"github.com/gege-tlph/mc-starter/internal/repair"
-	"github.com/gege-tlph/mc-starter/internal/tui"
 )
 
 var version = "dev"
@@ -29,9 +29,9 @@ func main() {
 	dryRun := fs.Bool("dry-run", false, "仅检查不下载")
 
 	if len(os.Args) < 2 {
-		// 无参数: 双击场景 → 启动 TUI 全自动
-		if err := tui.RunTUI("./config", false); err != nil {
-			fmt.Fprintf(os.Stderr, "TUI 错误: %v\n", err)
+		// 无参数: 双击场景 → 启动 GUI
+		if err := gui.Run("./config"); err != nil {
+			fmt.Fprintf(os.Stderr, "GUI 错误: %v\n", err)
 			os.Exit(1)
 		}
 		return
