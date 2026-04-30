@@ -348,6 +348,10 @@ func (a *App) openLauncher() {
 		walk.MsgBox(a.mw, "提示", "请先点击更新安装此版本", walk.MsgBoxOK)
 		return
 	}
+	if a.localCfg.Launcher == "" {
+		walk.MsgBox(a.mw, "提示", "未配置启动器路径，请点击右上角「⚙」进行设置", walk.MsgBoxOK)
+		return
+	}
 	walk.MsgBox(a.mw, "提示", fmt.Sprintf("打开启动器: %s\n（功能开发中）", a.selectedPack), walk.MsgBoxOK)
 }
 
