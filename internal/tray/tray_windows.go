@@ -39,8 +39,16 @@ func (m *WindowsTrayManager) Start() error {
 		return nil // 已启动
 	}
 
+	// walk.NewNotifyIcon 需要一个 Form 参数（可以是 nil，但某些功能受限）
+	// 创建隐藏主窗口作为 parent
+	mw, err := walk.NewMainWindow()
+	if err != nil {
+		return fmt.Errorf("创建主窗口失败: %w", err)
+	}
+	mw.SetVisible(false)
+
 	// 创建 NotifyIcon
-	ni, err := walk.NewNotifyIcon()
+	ni, err := walk.NewNotifyIcon(mw)
 	if err != nil {
 		return fmt.Errorf("创建通知图标失败: %w", err)
 	}
@@ -50,64 +58,83 @@ func (m *WindowsTrayManager) Start() error {
 	// 设置图标（使用默认应用图标）
 	icon, err := walk.Resources.Icon("../img/app.ico")
 	if err != nil {
-		// 没有自定义图标时用系统图标
-		_ = m.ni.SetIcon(win.LoadIcon(0, win.MakeIntResource(win.IDI_APPLICATION)))
+		// 没有自定义图标时使用 walk 内置方式
+		_ = ni.SetIcon(walk.IconApplication())
 	} else {
-		_ = m.ni.SetIcon(icon)
+		_ = ni.SetIcon(icon)
 	}
 
 	// 设置悬停提示
-	_ = m.ni.SetToolTip("MC-Starter")
+	_ = ni.SetToolTip("MC-Starter")
 
-	// 创建右键菜单
-	_ = m.ni.ContextMenu().Actions().Add(walk.NewAction("立即更新", func() {
-		m.runUpdate()
-	}))
-
-	_ = m.ni.ContextMenu().Actions().Add(walk.NewSeparatorAction())
-
-	// 修复子菜单
-	repairMenu := walk.NewMenu()
-	_ = m.ni.ContextMenu().Actions().Add(walk.NewMenuAction(repairMenu, "修复"))
-	repairMenu.Actions().Add(walk.NewAction("完全修复（清空+重下）", func() {
-		m.runRepair("clean")
-	}))
-	repairMenu.Actions().Add(walk.NewAction("仅模组", func() {
-		m.runRepair("mods-only")
-	}))
-	repairMenu.Actions().Add(walk.NewAction("仅配置", func() {
-		m.runRepair("config-only")
-	}))
-	repairMenu.Actions().Add(walk.NewSeparatorAction())
-	repairMenu.Actions().Add(walk.NewAction("回滚到上一版本", func() {
-		m.runRepair("rollback")
-	}))
-
-	_ = m.ni.ContextMenu().Actions().Add(walk.NewSeparatorAction())
-
-	// 打开游戏目录
-	_ = m.ni.ContextMenu().Actions().Add(walk.NewAction("打开 .minecraft", func() {
-		walk.Run("explorer", m.mcDir)
-	}))
-
-	_ = m.ni.ContextMenu().Actions().Add(walk.NewSeparatorAction())
-
-	// 退出
-	_ = m.ni.ContextMenu().Actions().Add(walk.NewAction("退出", func() {
-		m.Stop()
-	}))
+	// 构建右键菜单
+	if err := m.buildContextMenu(); err != nil {
+		return fmt.Errorf("构建右键菜单失败: %w", err)
+	}
 
 	// 设置可见
-	_ = m.ni.SetVisible(true)
+	_ = ni.SetVisible(true)
 
-	// 左键双击恢复（目前无窗口可恢复，当作打开 .minecraft）
-	_ = m.ni.MessageClicked().Attach(func(btn walk.NotifyIconMessageButton) {
+	// 左键双击打开目录
+	_ = ni.MessageClicked().Attach(func(btn walk.NotifyIconMessageButton) {
 		if btn == walk.NotifyIconButtonLeft {
 			walk.Run("explorer", m.mcDir)
 		}
 	})
 
 	return nil
+}
+
+// buildContextMenu 构建右键菜单
+func (m *WindowsTrayManager) buildContextMenu() error {
+	menu := m.ni.ContextMenu()
+	actions := menu.Actions()
+
+	_ = actions.Add(m.newAction("立即更新", func() {
+		m.runUpdate()
+	}))
+
+	_ = actions.Add(walk.NewSeparatorAction())
+
+	// 修复子菜单
+	repairMenu, err := walk.NewMenu()
+	if err != nil {
+		return fmt.Errorf("创建修复菜单失败: %w", err)
+	}
+	rmAction := walk.NewMenuAction(repairMenu)
+	rmAction.SetText("修复")
+	_ = actions.Add(rmAction)
+
+	rmActions := repairMenu.Actions()
+	_ = rmActions.Add(m.newAction("完全修复（清空+重下）", func() { m.runRepair("clean") }))
+	_ = rmActions.Add(m.newAction("仅模组", func() { m.runRepair("mods-only") }))
+	_ = rmActions.Add(m.newAction("仅配置", func() { m.runRepair("config-only") }))
+	_ = rmActions.Add(walk.NewSeparatorAction())
+	_ = rmActions.Add(m.newAction("回滚到上一版本", func() { m.runRepair("rollback") }))
+
+	_ = actions.Add(walk.NewSeparatorAction())
+
+	// 打开游戏目录
+	_ = actions.Add(m.newAction("打开 .minecraft", func() {
+		walk.Run("explorer", m.mcDir)
+	}))
+
+	_ = actions.Add(walk.NewSeparatorAction())
+
+	// 退出
+	_ = actions.Add(m.newAction("退出", func() {
+		m.Stop()
+	}))
+
+	return nil
+}
+
+// newAction 创建带文本和点击事件的 Action
+func (m *WindowsTrayManager) newAction(text string, onClick func()) *walk.Action {
+	a := walk.NewAction()
+	a.SetText(text)
+	a.Triggered().Attach(onClick)
+	return a
 }
 
 // Stop 停止托盘
@@ -160,7 +187,6 @@ func (m *WindowsTrayManager) NotifyCrash(ev repair.CrashEvent) {
 
 // runUpdate 执行更新
 func (m *WindowsTrayManager) runUpdate() {
-	// 通过启动子进程执行，避免阻塞托盘
 	exe, _ := walk.Executable()
 	_ = walk.Run(exe, "update", "--config", m.cfgDir)
 }
