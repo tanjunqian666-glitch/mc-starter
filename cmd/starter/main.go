@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -315,12 +316,14 @@ func run(cfgDir string, verbose bool, headless bool, dryRun bool) {
 					VersionDir: versionsDir,
 					LibraryDir: librariesDir,
 				}
-				if err := updater.EnsureVersion(ensureReq); err != nil {
+				ensureResult, err := updater.EnsureVersion(ensureReq)
+				if err != nil {
 					logger.Error("[%s] EnsureVersion 失败: %v", packName, err)
 					fmt.Fprintf(os.Stderr, "      ✗ MC 版本环境准备失败: %v\n", err)
 					continue
 				}
 				fmt.Println("      ✓ MC 版本环境就绪")
+				_ = ensureResult
 			}
 		} else {
 			fmt.Println("      服务端未指定 MC 版本，跳过 MC 本体下载")
@@ -342,30 +345,73 @@ func run(cfgDir string, verbose bool, headless bool, dryRun bool) {
 			localCfg.Packs[packName] = state
 		}
 
-		// d. packs/ → versions/ 合并（创建可被启动器识别的完整版本）
+		// Skip merge/version-json on dry-run or if no MC version
+		if dryRun || mcVersion == "" {
+			if dryRun {
+				fmt.Printf("      [DRY-RUN] 跳过合并与版本 JSON 写入\n")
+			}
+			processed++
+			continue
+		}
+
+		// d. 获取原版 profile → 写 version.json → 合并 packs/ → versions/
+		vm := launcher.NewVersionManifestManager(filepath.Join(cfgDir, ".cache", "manifest"))
+		vmMgr := launcher.NewVersionMetaManager(filepath.Join(cfgDir, ".cache", "versions"), vm)
+		vanillaMeta, fetchErr := vmMgr.Fetch(mcVersion)
+		if fetchErr != nil {
+			logger.Warn("[%s] 获取原版 profile 失败: %v（跳过 version.json 写入）", packName, fetchErr)
+			processed++
+			continue
+		}
+
 		packDir := filepath.Join(mcDir, "packs", packName)
-		// 版本名：使用 pack name 代替 MC version，用于启动器识别
 		versionName := fmt.Sprintf("mc-starter-%s", packName)
 		versionTargetDir := filepath.Join(versionsDir, versionName)
 
-		if dryRun {
-			fmt.Printf("      [DRY-RUN] 合并 %s → %s\n", packDir, versionTargetDir)
-		} else {
-			merged, mergeErrs := launcher.MergePackToVersion(packDir, versionTargetDir, dryRun)
-			if len(mergeErrs) > 0 {
-				for _, me := range mergeErrs {
-					logger.Warn("[%s] 合并部分失败: %v", packName, me)
+		// 确定 inheritsFrom 和 mainClass
+		inheritsFrom := mcVersion
+		mainClass := "net.minecraft.client.main.Main"
+		if loader != "" {
+			// 如果装了 loader，从磁盘读取其 profile 获取 mainClass
+			loaderType, loaderVer := launcher.ParseLoaderSpec(loader)
+			if loaderType == "fabric" && loaderVer != "" {
+				fabricVersionID := fmt.Sprintf("fabric-loader-%s-%s", loaderVer, mcVersion)
+				inheritsFrom = fabricVersionID
+				// fabric installer 已将 profile 写入 versions/<id>/<id>.json
+				fabProfilePath := filepath.Join(versionsDir, fabricVersionID, fabricVersionID+".json")
+				if data, readErr := os.ReadFile(fabProfilePath); readErr == nil {
+					var fabMeta launcher.VersionMeta
+					if jsonErr := json.Unmarshal(data, &fabMeta); jsonErr == nil && fabMeta.MainClass != "" {
+						mainClass = fabMeta.MainClass
+					}
 				}
-			}
-			if merged > 0 {
-				fmt.Printf("      ✓ 已合并 %d 个文件到 versions/%s/\n", merged, versionName)
-				fmt.Printf("        💡 在启动器中选择版本 \"%s\" 启动\n", versionName)
 			}
 		}
 
+		// 写 version.json
+		if err := launcher.WriteVersionMetaJSON(versionTargetDir, versionName, inheritsFrom, mainClass, vanillaMeta); err != nil {
+			logger.Error("[%s] 写入 version.json 失败: %v", packName, err)
+			fmt.Fprintf(os.Stderr, "      ✗ 写入版本配置失败: %v\n", err)
+			processed++
+			continue
+		}
+		fmt.Printf("      ✓ version.json 已写入 versions/%s/\n", versionName)
+
+		// e. 合并 packs/ 内容到版本目录（mods/config 等）
+		merged, mergeErrs := launcher.MergePackToVersion(packDir, versionTargetDir, false)
+		if len(mergeErrs) > 0 {
+			for _, me := range mergeErrs {
+				logger.Warn("[%s] 合并部分失败: %v", packName, me)
+			}
+		}
+		if merged > 0 {
+			fmt.Printf("      ✓ 已合并 %d 个文件到 versions/%s/\n", merged, versionName)
+		} else {
+			fmt.Printf("      * 没有需要合并的文件\n")
+		}
+		fmt.Printf("        💡 在启动器中选择版本 \"%s\" 启动\n", versionName)
+
 		processed++
-		_ = mcVersion
-		_ = loader
 	}
 
 	if processed == 0 {

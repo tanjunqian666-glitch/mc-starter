@@ -551,14 +551,29 @@ type EnsureRequest struct {
 	LibraryDir string // libraries/ 目录路径
 }
 
+// EnsureResult EnsureVersion 的执行结果
+type EnsureResult struct {
+	MCVersion string // MC 版本
+	Loader    string // loader 规格（如 "fabric-0.16.10" 或空）
+	VersionID string // 完整的版本 ID（如 "fabric-loader-0.16.10-1.21.1" 或 "1.21.1"）
+	MainClass string // 启动主类（loader 的，或原版的）
+}
+
 // EnsureVersion 确保指定 MC 版本 + Loader 已安装
-// 内部调用 sync 组件 + fabric install，对外是一条原子操作
-func (u *Updater) EnsureVersion(req EnsureRequest) error {
+// 返回安装结果，含版本 ID 和 mainClass，供 run 命令写版本 JSON
+func (u *Updater) EnsureVersion(req EnsureRequest) (*EnsureResult, error) {
+	res := &EnsureResult{
+		MCVersion: req.MCVersion,
+		Loader:    req.Loader,
+		VersionID: req.MCVersion,
+		MainClass: "net.minecraft.client.main.Main",
+	}
+
 	// 1. 确保 MC 本体已安装（client.jar + libraries）
 	vm := u.newVersionMetaManager(req.MCVersion)
 	meta, err := vm.Fetch(req.MCVersion)
 	if err != nil {
-		return fmt.Errorf("获取 %s 版本元数据失败: %w", req.MCVersion, err)
+		return res, fmt.Errorf("获取 %s 版本元数据失败: %w", req.MCVersion, err)
 	}
 
 	// 下载 client.jar
@@ -566,11 +581,11 @@ func (u *Updater) EnsureVersion(req EnsureRequest) error {
 	if _, err := os.Stat(jarPath); os.IsNotExist(err) {
 		logger.Info("[Ensure] 下载 client.jar: %s", req.MCVersion)
 		if err := os.MkdirAll(filepath.Dir(jarPath), 0755); err != nil {
-			return fmt.Errorf("创建版本目录失败: %w", err)
+			return res, fmt.Errorf("创建版本目录失败: %w", err)
 		}
 		downloaded, err := vm.DownloadClientJar(meta, filepath.Dir(filepath.Dir(jarPath)))
 		if err != nil {
-			return fmt.Errorf("下载 client.jar 失败: %w", err)
+			return res, fmt.Errorf("下载 client.jar 失败: %w", err)
 		}
 		jarPath = downloaded
 		logger.Info("[Ensure] client.jar 下载完成: %s", jarPath)
@@ -585,7 +600,7 @@ func (u *Updater) EnsureVersion(req EnsureRequest) error {
 		logger.Warn("[Ensure] 解析 libraries 失败（非致命）: %v", err)
 	} else if len(resolvedLibs) > 0 {
 		libFiles := lm.ResolveToFiles(resolvedLibs)
-		toDownload, _ := partitionLibFiles(libFiles) // 只下载不存在的
+		toDownload, _ := partitionLibFiles(libFiles)
 		downloaded, skipped, failed := lm.DownloadFiles(toDownload)
 		logger.Info("[Ensure] Libraries: %d 下载, %d 已存在, %d 失败", downloaded, skipped, failed)
 		extracted, _ := lm.ExtractNativesFromFiles(libFiles)
@@ -594,23 +609,27 @@ func (u *Updater) EnsureVersion(req EnsureRequest) error {
 
 	// 2. 如果需要 Loader，安装
 	if req.Loader != "" {
-		loaderType, loaderVer := parseLoaderSpec(req.Loader)
+		loaderType, loaderVer := ParseLoaderSpec(req.Loader)
 		switch loaderType {
 		case "fabric":
-			if err := u.ensureFabric(req, meta, loaderVer); err != nil {
-				return fmt.Errorf("安装 Fabric %s/%s 失败: %w", req.MCVersion, loaderVer, err)
+			fabricResult, fabErr := u.ensureFabric(req, meta, loaderVer)
+			if fabErr != nil {
+				return res, fmt.Errorf("安装 Fabric %s/%s 失败: %w", req.MCVersion, loaderVer, fabErr)
 			}
+			res.VersionID = fabricResult.VersionID
+			res.MainClass = fabricResult.MainClass
 		case "forge", "neoforge":
-			// TODO: Forge/NeoForge 支持
 			logger.Warn("[Ensure] %s loader 安装尚未实现，跳过", loaderType)
 		default:
 			logger.Warn("[Ensure] 未知 loader 类型: %s，跳过", loaderType)
 		}
 	}
 
-	logger.Info("[Ensure] MC %s%s 安装完成", req.MCVersion,
-		map[bool]string{true: " + " + req.Loader, false: ""}[req.Loader != ""])
-	return nil
+	logger.Info("[Ensure] MC %s%s 安装完成 → 版本ID=%s, mainClass=%s",
+		req.MCVersion,
+		map[bool]string{true: " + " + req.Loader, false: ""}[req.Loader != ""],
+		res.VersionID, res.MainClass)
+	return res, nil
 }
 
 // newVersionMetaManager 创建临时的 VersionMetaManager
@@ -627,8 +646,8 @@ func libraryManager(cfgDir, libraryDir string) *LibraryManager {
 	return NewLibraryManager(libraryDir, nativesDir)
 }
 
-// parseLoaderSpec 解析 loader 规格 "fabric-0.16.10" → ("fabric", "0.16.10")
-func parseLoaderSpec(spec string) (loaderType, loaderVer string) {
+// ParseLoaderSpec 解析 loader 规格 "fabric-0.16.10" → ("fabric", "0.16.10")
+func ParseLoaderSpec(spec string) (loaderType, loaderVer string) {
 	idx := strings.Index(spec, "-")
 	if idx < 0 {
 		return spec, ""
@@ -636,8 +655,8 @@ func parseLoaderSpec(spec string) (loaderType, loaderVer string) {
 	return spec[:idx], spec[idx+1:]
 }
 
-// ensureFabric 安装 Fabric loader
-func (u *Updater) ensureFabric(req EnsureRequest, meta *VersionMeta, loaderVer string) error {
+// ensureFabric 安装 Fabric loader，返回安装结果（含 MainClass）
+func (u *Updater) ensureFabric(req EnsureRequest, meta *VersionMeta, loaderVer string) (*FabricResult, error) {
 	// 如果未指定 loader 版本，自动选最新
 	installer := NewFabricInstaller(req.MCVersion, loaderVer, req.VersionDir, req.LibraryDir)
 	installer.SetMirror(true)
@@ -645,7 +664,7 @@ func (u *Updater) ensureFabric(req EnsureRequest, meta *VersionMeta, loaderVer s
 	if loaderVer == "" {
 		selected, err := installer.SelectLatestLoader()
 		if err != nil {
-			return fmt.Errorf("获取最新 Fabric loader 版本失败: %w", err)
+			return nil, fmt.Errorf("获取最新 Fabric loader 版本失败: %w", err)
 		}
 		loaderVer = selected
 		logger.Info("[Ensure] 自动选择 Fabric loader: %s", loaderVer)
@@ -656,7 +675,7 @@ func (u *Updater) ensureFabric(req EnsureRequest, meta *VersionMeta, loaderVer s
 
 	result, err := installer.Install()
 	if err != nil {
-		return fmt.Errorf("Fabric 安装失败: %w", err)
+		return nil, fmt.Errorf("Fabric 安装失败: %w", err)
 	}
 	logger.Info("[Ensure] Fabric %s-%s 安装完成（%d 下载，%d 已存在）",
 		req.MCVersion, result.LoaderVersion, result.Downloaded, result.Skipped)
@@ -666,7 +685,7 @@ func (u *Updater) ensureFabric(req EnsureRequest, meta *VersionMeta, loaderVer s
 	if len(missing) > 0 {
 		logger.Warn("[Ensure] Fabric 安装后 %d 个文件缺失: %v", len(missing), missing)
 	}
-	return nil
+	return result, nil
 }
 
 // partitionLibFiles 将库文件列表分为"需下载"和"已存在"

@@ -136,6 +136,7 @@ type FabricResult struct {
 	Downloaded    int    // 下载的文件数
 	Skipped       int    // 已存在的文件数
 	LibrariesDir  string // libraries 目录路径
+	MainClass     string // 启动主类（从 profile 中获取）
 }
 
 // fetchJSON GET 请求并解析 JSON
@@ -253,6 +254,8 @@ func (f *FabricInstaller) Install() (*FabricResult, error) {
 	}
 	logger.Info("Fabric: profile ID=%s, inheritsFrom=%s, mainClass=%s",
 		profile.ID, profile.InheritsFrom, profile.MainClass)
+
+	result.MainClass = profile.MainClass
 
 	// Step 3: 写入 version JSON
 	versionDir := filepath.Join(f.versionsDir, profile.ID)

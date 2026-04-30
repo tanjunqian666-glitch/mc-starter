@@ -44,6 +44,34 @@ type VersionMeta struct {
 	Arguments          *Arguments     `json:"arguments,omitempty"`
 	InheritsFrom       string         `json:"inheritsFrom,omitempty"`
 	ReleaseTime        string         `json:"releaseTime,omitempty"`
+	JavaVersion        *JavaVersion   `json:"javaVersion,omitempty"`
+	Logging            *LoggingConfig `json:"logging,omitempty"`
+}
+
+// JavaVersion 描述所需 Java 版本
+type JavaVersion struct {
+	Component    string `json:"component"`
+	MajorVersion int    `json:"majorVersion"`
+}
+
+// LoggingConfig 日志配置
+type LoggingConfig struct {
+	Client *LoggingClient `json:"client,omitempty"`
+}
+
+// LoggingClient 客户端日志配置
+type LoggingClient struct {
+	Argument string            `json:"argument"`
+	File     *LoggingFileEntry `json:"file,omitempty"`
+	Type     string            `json:"type"`
+}
+
+// LoggingFileEntry 日志文件描述
+type LoggingFileEntry struct {
+	ID   string `json:"id"`
+	Sha1 string `json:"sha1"`
+	Size int64  `json:"size"`
+	URL  string `json:"url"`
 }
 
 // AssetIndexRef 资源索引引用

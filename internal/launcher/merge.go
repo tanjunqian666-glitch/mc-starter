@@ -1,9 +1,11 @@
 package launcher
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gege-tlph/mc-starter/internal/logger"
 )
@@ -112,4 +114,86 @@ func MergeAllPacksToVersion(packDirs []string, versionDir string, dryRun bool) (
 		allErrs = append(allErrs, errs...)
 	}
 	return totalMerged, allErrs
+}
+
+// VersionMetaForPack 生成整合包版本的 version.json 元数据
+// 参考 PCL2 格式：id 为包名，inheritsFrom 指向 MC 版本或 loader 版本，
+// mainClass 从 loader profile 获取，关键字段从原版 profile 复制
+type VersionMetaForPack struct {
+	ID                 string         `json:"id"`
+	InheritsFrom       string         `json:"inheritsFrom"`
+	MainClass          string         `json:"mainClass"`
+	Type               string         `json:"type"`
+	Time               string         `json:"time"`
+	ReleaseTime        string         `json:"releaseTime"`
+	MinimumLauncherVer int            `json:"minimumLauncherVersion"`
+	Assets             string         `json:"assets,omitempty"`
+	AssetIndex         *AssetIndexRef `json:"assetIndex,omitempty"`
+	Downloads          *Downloads     `json:"downloads,omitempty"`
+	JavaVersion        *JavaVersion   `json:"javaVersion,omitempty"`
+	Libraries          []LibraryEntry `json:"libraries"`
+	Arguments          *Arguments     `json:"arguments,omitempty"`
+	Logging            *LoggingConfig `json:"logging,omitempty"`
+}
+
+// WriteVersionMetaJSON 为整合包写入 version.json
+//
+// 参数：
+//   - versionDir: versions/<pack-version>/ 目录
+//   - packName:  整合包显示名（如 "mc-starter-main"）
+//   - inheritsFrom: 继承的版本（MC 版本号，如 "1.21.1"）
+//   - mainClass: 启动主类（loader 的或原版的）
+//   - meta:       MC 原版的 VersionMeta（用于复制 assetIndex/downloads 等字段）
+func WriteVersionMetaJSON(versionDir, packName, inheritsFrom, mainClass string, meta *VersionMeta) error {
+	now := time.Now().Format(time.RFC3339)
+
+	v := &VersionMetaForPack{
+		ID:                 packName,
+		InheritsFrom:       inheritsFrom,
+		MainClass:          mainClass,
+		Type:               "custom",
+		Time:               now,
+		ReleaseTime:        now,
+		MinimumLauncherVer: 21,
+		Libraries:          []LibraryEntry{},
+	}
+
+	// 从原版 profile 复制关键字段，保证 PCL 能正确解析
+	if meta != nil {
+		v.Assets = meta.Assets
+		v.AssetIndex = meta.AssetIndex
+		v.Downloads = meta.Downloads
+		v.Arguments = meta.Arguments
+		v.MinimumLauncherVer = meta.MinimumLauncherVer
+
+		// 从原版 profile 复制 javaVersion（如果有）
+		if meta.JavaVersion != nil {
+			v.JavaVersion = &JavaVersion{
+				Component:    meta.JavaVersion.Component,
+				MajorVersion: meta.JavaVersion.MajorVersion,
+			}
+		}
+
+		// 复制 logging 配置（如果有）
+		if meta.Logging != nil {
+			v.Logging = meta.Logging
+		}
+	}
+
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fmt.Errorf("序列化 version.json 失败: %w", err)
+	}
+
+	if err := os.MkdirAll(versionDir, 0755); err != nil {
+		return fmt.Errorf("创建版本目录 %s 失败: %w", versionDir, err)
+	}
+
+	jsonPath := filepath.Join(versionDir, fmt.Sprintf("%s.json", packName))
+	if err := os.WriteFile(jsonPath, data, 0644); err != nil {
+		return fmt.Errorf("写入 %s 失败: %w", jsonPath, err)
+	}
+
+	logger.Info("[VersionJSON] 已写入 %s (inheritsFrom=%s, mainClass=%s)", jsonPath, inheritsFrom, mainClass)
+	return nil
 }
