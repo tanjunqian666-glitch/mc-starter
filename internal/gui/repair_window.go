@@ -62,6 +62,9 @@ type repairWindowState struct {
 
 	mu   sync.Mutex
 	busy bool
+
+	// 版本提示条（非最新版时显示，指向 MC 修复/模组同步）
+	versionHint *walk.Label
 }
 
 // showRepairWindow 打开修复工具窗口
@@ -102,6 +105,16 @@ func showRepairWindow(app *App, vm *ViewModel, orc *Orchestrator) {
 						TextColor: walk.RGB(80, 80, 80),
 					},
 				},
+			},
+			// 版本提示条（非最新版时显示）
+			Label{
+				AssignTo: &state.versionHint,
+				Text:     "",
+				Font:     Font{PointSize: 9},
+				TextColor: walk.RGB(200, 100, 0),
+				Visible:  false,
+				Wrap:     true,
+				MinSize:  Size{380, 0},
 			},
 			// 进度显示（Label 方式，不用进度条）
 			Composite{
@@ -226,18 +239,6 @@ func (rs *repairWindowState) startRepair(action repairAction) {
 	rs.mu.Unlock()
 
 	rs.refreshUI()
-
-	// MC 修复和模组同步需要版本已是最新
-	if action == actionMCRepair || action == actionModSync {
-		status := rs.vm.CurrentPackStatus()
-		if status.HasUpdate || !status.IsInstalled {
-			walk.MsgBox(rs.dlg, "无法执行",
-				"当前版本不是最新，如需使用 MC 修复和模组同步，请先回到主界面点击更新。\n\n"+
-					"如果你无法更新，请使用全量修复。", walk.MsgBoxOK)
-			rs.setDone()
-			return
-		}
-	}
 
 	// 所有操作先弹窗确认，用用户能看懂的语言
 	confirmTitle, confirmText := getRepairConfirm(action)
@@ -407,18 +408,39 @@ func (rs *repairWindowState) refreshUI() {
 	b := rs.busy
 	rs.mu.Unlock()
 
-	// 所有按钮始终可用（MC 修复/模组同步点击后内置检查版本，弹提示引导用户）
+	// 检查版本是否最新
+	status := rs.vm.CurrentPackStatus()
+	isLatest := status.IsInstalled && !status.HasUpdate
+
+	// MC 修复和模组同步只在版本最新时可用
+	if rs.mcRepairBtn != nil {
+		rs.mcRepairBtn.SetEnabled(!b && isLatest)
+	}
+	if rs.modSyncBtn != nil {
+		rs.modSyncBtn.SetEnabled(!b && isLatest)
+	}
+	// 全量修复、崩溃日志、恢复始终可用
 	for _, btn := range []*walk.PushButton{
-		rs.cleanAllBtn, rs.mcRepairBtn, rs.modSyncBtn,
-		rs.crashUploadBtn, rs.restoreBtn,
+		rs.cleanAllBtn, rs.crashUploadBtn, rs.restoreBtn,
 	} {
 		if btn != nil {
 			btn.SetEnabled(!b)
 		}
 	}
-	// 备份下拉也禁用
+	// 备份下拉
 	if rs.backupCB != nil {
 		rs.backupCB.SetEnabled(!b)
+	}
+
+	// 版本提示条（非最新版 + 非忙碌时显示）
+	if rs.versionHint != nil {
+		if !b && !isLatest {
+			rs.versionHint.SetText("当前版本不是最新，如需使用 MC 修复和模组同步，请先回到主界面点击更新。如果你无法更新，请使用全量修复。")
+			rs.versionHint.SetVisible(true)
+		} else {
+			rs.versionHint.SetText("")
+			rs.versionHint.SetVisible(false)
+		}
 	}
 }
 
