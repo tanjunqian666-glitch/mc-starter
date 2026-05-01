@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
@@ -445,10 +447,25 @@ func openLauncherExternal(launcherPath string) error {
 	if launcherPath == "" {
 		return fmt.Errorf("启动器路径为空")
 	}
-	if _, err := os.Stat(launcherPath); os.IsNotExist(err) {
-		return fmt.Errorf("启动器文件不存在: %s", launcherPath)
+	// 相对路径必须转为绝对路径，否则 Go 的 exec.Command 找不到
+	finalPath := launcherPath
+	if !filepath.IsAbs(finalPath) {
+		// 先尝试加 ./ 前缀、找 PATH、或在当前目录
+		if strings.HasPrefix(finalPath, ".") {
+			// 已经是 ./xxx 或 ..\xxx 格式
+		} else {
+			// "Plain Craft Launcher 2.exe" → ".\Plain Craft Launcher 2.exe"
+			finalPath = ".\\" + finalPath
+		}
+		absPath, err := filepath.Abs(finalPath)
+		if err == nil {
+			finalPath = absPath
+		}
 	}
-	cmd := exec.Command(launcherPath)
+	if _, err := os.Stat(finalPath); os.IsNotExist(err) {
+		return fmt.Errorf("启动器文件不存在: %s", finalPath)
+	}
+	cmd := exec.Command(finalPath)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("启动启动器失败: %v", err)
 	}

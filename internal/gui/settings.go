@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/gege-tlph/mc-starter/internal/launcher"
@@ -343,6 +344,12 @@ func showSettings(a *App) {
 							// 从输入框读取当前值（AssignTo 不自动同步值到变量）
 							curServer := serverEdit.Text()
 							curLauncher := launchEdit.Text()
+							// 相对路径转绝对路径（避免下次启动时 exec.Command 找不到）
+							if curLauncher != "" && !filepath.IsAbs(curLauncher) {
+								if abs, err := filepath.Abs(curLauncher); err == nil {
+									curLauncher = abs
+								}
+							}
 
 							if curServer == "" {
 								walk.MsgBox(dlg, "提示", "请输入服务器 API 地址", walk.MsgBoxOK)

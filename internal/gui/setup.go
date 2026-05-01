@@ -350,7 +350,13 @@ func runSetupWizard(a *App) error {
 							default:
 								cfg := a.vm.LocalConfig()
 								cfg.ServerURL = serverURL
-								cfg.Launcher = launcherPath
+								if launcherPath != "" && !filepath.IsAbs(launcherPath) {
+									if abs, err := filepath.Abs(launcherPath); err == nil {
+										cfg.Launcher = abs
+									}
+								} else {
+									cfg.Launcher = launcherPath
+								}
 								cfg.SetMinecraftDir("", mcDir)
 								a.vm.SaveLocalConfig(cfg)
 
