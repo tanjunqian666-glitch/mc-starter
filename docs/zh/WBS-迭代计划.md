@@ -383,7 +383,7 @@ GUI 重构按 WBS 分 4 阶段 20 项任务，详见 `docs/zh/GUI设计与重构
 | G.13 | 进度对接 EventBus | ✅ |
 | G.14 | 下拉框切换版本联动 | ✅ |
 | G.15-G.20 | 副版本/结果弹窗/取消/错误处理/测试 | ✅ G.20 端到端测试通过 ✅ |
-| | **G.20 产出** | 设置弹窗预填 ✅ / PCL 缓存 ✅ / AssignTo nil 修复 ✅ / 已保存路径 fallback ✅ |
+| | **G.20 产出** | 设置弹窗预填 ✅ / PCL 缓存 ✅ / AssignTo nil 修复 ✅ / 已保存路径 fallback ✅ / 启动器相对路径修复 ✅ / 最大化按钮移除 ✅ |
 
 ### 状态图
 
@@ -409,6 +409,9 @@ G.14-G.20 ✅ (端到端测试 ✅ 2026-05-02)
 | 输入框不预填 | `LineEdit{Text: &var}` 是 UI→data 单向绑定 | 改为 `AssignTo` + `SetText()` |
 | PCL 重复搜索 | 每次 `refreshMCDirItems` 都全量搜 | 加 `mcDirCache` 缓存 |
 | 已保存路径不显示 | 扫描结果无此路径时只显示"未检测到" | 自动追加为 `[已保存]` |
+| 启动器相对路径失败 | `exec.Command` 不允许直接执行当前目录程序（Go 规则） | `openLauncherExternal` 补 `.\` 前缀 + `filepath.Abs`；保存逻辑自动转绝对路径 |
+| 主窗口最大化按钮 | walk `MaximizeBox` 字段不生效（已知 issue #214, #401） | Create 后 Win32 `SetWindowLongW` 清除 `WS_MAXIMIZEBOX` 样式 |
+| 测试审计 | 无 mock 自欺欺人，160 测试全部真实逻辑、629 断言 | 已验证通过，self-improving 记录规则 |
 
 ### 代码清理（同批次）
 
