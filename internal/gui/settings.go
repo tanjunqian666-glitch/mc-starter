@@ -38,7 +38,7 @@ func showSettings(a *App) {
 	var acceptPB, cancelPB *walk.PushButton
 	var serverEdit, launchEdit *walk.LineEdit
 
-	localCfg := a.localCfg.Copy()
+	localCfg := a.vm.LocalConfig()
 
 	debugLog("showSettings: localCfg.ServerURL=%q Launcher=%q", localCfg.ServerURL, localCfg.Launcher)
 
@@ -217,7 +217,7 @@ func showSettings(a *App) {
 	// 构建副版本 UI 声明
 	// ============================================================
 
-	subPackChildren := buildSubPackUI(a, localCfg, &subUIs, refreshMCDirItems, setupMCCB, pickDir, refreshSubMCDir)
+	subPackChildren := buildSubPackUI(a, localCfg, &subUIs, refreshMCDirItems, setupMCCB, refreshSubMCDir)
 
 	// ============================================================
 	// Dialog 声明
@@ -367,14 +367,12 @@ func showSettings(a *App) {
 							localCfg.Launcher = curLauncher
 							localCfg.ServerURL = curServer
 
-							if err := a.cfg.SaveLocal(localCfg); err != nil {
+							if err := a.vm.SaveLocalConfig(localCfg); err != nil {
 								walk.MsgBox(dlg, "错误", fmt.Sprintf("保存配置失败: %v", err), walk.MsgBoxOK)
 								return
 							}
 
-							a.mu.Lock()
-							a.localCfg = localCfg
-							a.mu.Unlock()
+							// 不需要手动写 a.localCfg，vm.SaveLocalConfig 已自动更新内部引用
 
 							go func() {
 								a.refreshServerPacks()
@@ -444,7 +442,6 @@ func showSettings(a *App) {
 func buildSubPackUI(a *App, localCfg *model.LocalConfig, subUIs *[]*subPackUI,
 	refreshItems func() []mcDirItem,
 	setupCB func(*walk.ComboBox, []mcDirItem, string) string,
-	pickDirFn func(walk.Form, *walk.ComboBox, *[]mcDirItem, *string),
 	refreshSub func(*subPackUI),
 ) Widget {
 

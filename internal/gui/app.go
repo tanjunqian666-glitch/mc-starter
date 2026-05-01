@@ -18,8 +18,6 @@ import (
 	"os/exec"
 	"sync"
 
-	"github.com/gege-tlph/mc-starter/internal/config"
-	"github.com/gege-tlph/mc-starter/internal/model"
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
 )
@@ -46,10 +44,6 @@ type App struct {
 	progress  *walk.ProgressBar
 	progressLabel *walk.Label
 	cancelBtn *walk.PushButton
-
-	// 数据（仅供 settings.go / setup.go 兼容，后续可移除）
-	cfg      *config.Manager
-	localCfg *model.LocalConfig
 }
 
 // Run 启动 GUI
@@ -71,8 +65,7 @@ func Run(cfgDir string) error {
 		vm:       vm,
 		eb:       eb,
 		orc:      orc,
-		cfg:      config.New(cfgDir),
-		localCfg: vm.LocalConfig(),
+
 	}
 
 	debugLog("Run(cfgDir=%s) isFirstRun=%v", cfgDir, isFirstRun)

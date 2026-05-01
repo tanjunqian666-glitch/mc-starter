@@ -348,12 +348,11 @@ func runSetupWizard(a *App) error {
 								nextPB.SetText("完成")
 
 							default:
-								a.mu.Lock()
-								a.localCfg.ServerURL = serverURL
-								a.localCfg.Launcher = launcherPath
-								a.localCfg.SetMinecraftDir("", mcDir)
-								a.mu.Unlock()
-								a.cfg.SaveLocal(a.localCfg)
+								cfg := a.vm.LocalConfig()
+								cfg.ServerURL = serverURL
+								cfg.Launcher = launcherPath
+								cfg.SetMinecraftDir("", mcDir)
+								a.vm.SaveLocalConfig(cfg)
 
 								dlg.Accept()
 							}

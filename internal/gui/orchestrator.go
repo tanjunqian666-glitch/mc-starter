@@ -597,20 +597,6 @@ func (o *Orchestrator) ListBackups(mcDir string) ([]repair.BackupListEntry, erro
 // 配置
 // ============================================================
 
-// SaveConfig 保存配置并刷新服务端列表
-func (o *Orchestrator) SaveConfig(localCfg *model.LocalConfig) error {
-	if err := o.cfg.SaveLocal(localCfg); err != nil {
-		return err
-	}
-	// 保存后刷新版本列表
-	o.vm.RefreshPacks()
-	return nil
-}
-
-// ReloadPacks 强制刷新服务端版本列表
-func (o *Orchestrator) ReloadPacks() {
-	o.vm.RefreshPacks()
-}
 
 // PingServer 测试服务端是否可达
 func (o *Orchestrator) PingServer() error {
