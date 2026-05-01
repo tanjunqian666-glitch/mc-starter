@@ -80,37 +80,62 @@ mc-starter 的 GUI 定位是 **小工具**，不是大应用：
 ## 三、修复工具窗口
 
 ```
-┌─────── 修复工具 ──────────────────────┐
-│                                         │
-│  选择要执行的修复操作:                   │
-│                                         │
-│  ○ 1. 全量修复（保留 saves 等个人数据） │
-│     清理 mods/config/resourcepacks 后   │
-│     重新从服务端下载                    │
-│                                         │
-│  ○ 2. MC 本体修复                      │
-│     重新安装 Minecraft + Fabric/Forge  │
-│                                         │
-│  ○ 3. 模组同步（清空后重新下载）       │
-│     清空 mods/ 目录，从服务端拉取最新   │
-│                                         │
-│  ○ 4. 崩溃日志上传                     │
-│     收集崩溃报告上传至服务端            │
-│                                         │
-│  □ 修复前创建备份                       │
-│                                         │
-│             [执行]  [取消]              │
-└─────────────────────────────────────────┘
+┌─────── 修复工具 ─────────────────────────┐
+│                                            │
+│  全量修复                                  │
+│  只保留 saves/ 和 screenshots/，           │
+│  清理后从服务端重新下载                    │
+│                                            │
+│  [🔧 执行全量修复]                        │
+│                                            │
+│  ─────────────────────────────────────     │
+│                                            │
+│  MC 本体修复                              │
+│  重新安装 Minecraft + Fabric/Forge        │
+│                                            │
+│  [⚡ 执行 MC 修复]                        │
+│                                            │
+│  ─────────────────────────────────────     │
+│                                            │
+│  模组同步                                  │
+│  清空 mods/ 目录，从服务端拉取最新         │
+│                                            │
+│  [📦 执行模组同步]                        │
+│                                            │
+│  ─────────────────────────────────────     │
+│                                            │
+│  崩溃日志上传                              │
+│  收集最近崩溃报告上传至服务端              │
+│                                            │
+│  [📤 上传崩溃日志]                        │
+│                                            │
+│  ─────────────────────────────────────     │
+│                                            │
+│  ☑ 修复前创建备份                          │
+│                                            │
+│  备份: [最新: 05/01/26 22:30 ▼]           │
+│  （下拉框显示最近 3 个备份的时间戳）       │
+│                                            │
+│                       [关闭]               │
+└────────────────────────────────────────────┘
 ```
+
+### 设计要点
+
+- **每个功能是一个独立按钮**，不是选项+执行按钮
+- **修复前创建备份**：默认勾选，点任意修复按钮时触发
+- **备份下拉框**：显示最近 3 个备份时间戳（mm/dd/yy hh:mm 格式）。点修复按钮时如果有最新备份则自动使用该备份 ID；点下拉选中旧备份可手动回滚
+- **关闭**：关闭修复窗口，不影响主界面
 
 ### 选项与现有代码覆盖
 
-| 选项 | 行为 | 现有代码 | 状态 |
-|------|------|---------|------|
-| 1. 全量修复 | `repair.Repair(mcDir, CleanAll)` → 创建备份 → 清理 mods/config/resourcepacks/shaders → 引导用户点更新 | `internal/repair/repair.go` Repair() | ✅ 可用 |
-| 2. MC 本体修复 | `updater.EnsureVersion()` 重新走一遍 MC 本体+Loader 安装 | `internal/launcher/update.go` EnsureVersion() | ✅ 可用 |
-| 3. 模组同步 | 清理 mods/ → `updater.UpdatePack(forceFull=true)` 全量覆盖 | `internal/launcher/update.go` UpdatePack() | ✅ 可用（forceFull） |
-| 4. 崩溃日志上传 | 扫描 .minecraft/crash-reports/ → 调用 `repair.CollectAndUpload()` | `internal/repair/upload.go` | ✅ 可用 |
+| 功能按钮 | 行为 | 现有代码 | 状态 |
+|---------|------|---------|------|
+| 🔧 执行全量修复 | 勾选备份则调用 `repair.CreateBackup(mcDir, ReasonRepair)` → `repair.Repair(mcDir, ActionCleanAll)` 清理 mods/config/resourcepacks/shaders → 提示用户回主界面点安装 | `internal/repair/repair.go` Repair() + backup.go | ✅ 可用 |
+| ⚡ 执行 MC 修复 | `updater.EnsureVersion()` 重新走一遍 MC 本体+Loader 安装 | `internal/launcher/update.go` EnsureVersion() | ✅ 可用 |
+| 📦 执行模组同步 | 清理 mods/ → `updater.UpdatePack(forceFull=true)` 全量覆盖 | `internal/launcher/update.go` UpdatePack() | ✅ 可用（forceFull） |
+| 📤 上传崩溃日志 | 扫描 .minecraft/crash-reports/ → 调用 `repair.CollectAndUpload()` | `internal/repair/upload.go` | ✅ 可用 |
+| 备份下拉框回滚 | 选中旧备份 → `repair.Repair(mcDir, ActionRollback, backupID)` | `internal/repair/repair.go` rollback() | ✅ 可用 |
 
 ---
 
