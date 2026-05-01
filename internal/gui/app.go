@@ -1,20 +1,19 @@
 // Package gui — mc-starter Windows GUI (Walk)
 //
-// 小工具风格：固定大小窗口，无缩放
-// 主界面：版本选择 + 打开启动器 + 更新按钮 + 进度条 + 版本状态
-// 设置弹窗：Minecraft 根目录 / 启动器路径 / 服务端 API / 副版本启用
-// 首次启动：配置向导（API→启动器路径自动检测→MC目录自动检测）
+// G.5 简化版 app.go — 只负责 UI 布局和控件绑定
+// 数据从 ViewModel 来，操作调 Orchestrator
 //
 // 核心流程：
 //   首次打开 → 配置向导
-//   日常使用 → 选版本 → 打开启动器（同步完才能点）
-//   有更新   → 更新按钮亮 → 点→自动同步→自动装Fabric/Forge→完成
+//   日常使用 → 选版本 → 更新按钮状态自动跟随
+//   有更新   → 点更新 → Orchestrator 调度 → EventBus 事件驱动 UI 刷新
+//
+// 小工具风格：固定大小窗口，无缩放
 
 package gui
 
 import (
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/gege-tlph/mc-starter/internal/config"
@@ -24,10 +23,14 @@ import (
 )
 
 // App 全局 GUI 应用状态
+// 控件字段直接用 Walk 绑定，数据走 ViewModel，操作走 Orchestrator
 type App struct {
-	sync.Mutex
-
 	cfgDir string
+
+	// 三层（初始化后不可变）
+	vm  *ViewModel
+	eb  *EventBus
+	orc *Orchestrator
 
 	// Walk 控件引用（运行时绑定）
 	mw        *walk.MainWindow
@@ -35,51 +38,62 @@ type App struct {
 	openBtn   *walk.PushButton
 	updateBtn *walk.PushButton
 	statusBar *walk.Label
-	verBar    *walk.Label // 版本状态栏："主整合包  本地: v1.2.0  最新: v1.3.0"
+	verBar    *walk.Label // 版本状态栏
 	progress  *walk.ProgressBar
 	progressLabel *walk.Label
 	cancelBtn *walk.PushButton
 
-	// 数据
-	cfg            *config.Manager
-	localCfg       *model.LocalConfig
-	serverPacks    []model.PackInfo // 服务端版本列表
-	selectedPack   string           // 当前选中的版本名
-	hasUpdate      bool
-	currentVersion string // 本地版本
-	latestVersion  string // 服务端最新版本
-
-	// 同步状态
-	syncing   bool
-	syncCancel chan struct{}
+	// 数据（仅供 settings.go / setup.go 兼容，后续可移除）
+	cfg      *config.Manager
+	localCfg *model.LocalConfig
 }
 
 // Run 启动 GUI
 func Run(cfgDir string) error {
+	// 1. 初始化三层
+	vm := NewViewModel(cfgDir)
+	eb := NewEventBus(64)
+	vm.SetEventBus(eb)
+
+	isFirstRun := vm.Init()
+
+	orc := NewOrchestrator(cfgDir, vm, eb)
+
 	app := &App{
-		cfgDir:     cfgDir,
-		cfg:        config.New(cfgDir),
-		syncCancel: make(chan struct{}),
+		cfgDir:   cfgDir,
+		vm:       vm,
+		eb:       eb,
+		orc:      orc,
+		cfg:      config.New(cfgDir),
+		localCfg: vm.LocalConfig(),
 	}
 
-	// 加载本地配置
-	localCfg, err := app.cfg.LoadLocal()
-	if err != nil {
-		return fmt.Errorf("加载配置失败: %v", err)
+	// 2. 启动 EventBus 分发
+	go eb.Run()
+
+	// 3. 构建 UI
+	app.buildUI()
+
+	// 4. 初始选中版本
+	vm.DetermineInitialPack()
+	app.refreshUI()
+
+	// 5. 首次启动向导
+	if isFirstRun {
+		app.mw.Synchronize(func() {
+			runSetupWizard(app)
+		})
 	}
-	app.localCfg = localCfg
 
-	// 尝试拉取服务端版本列表
-	app.refreshServerPacks()
+	// 6. 启动 EventBus 事件循环（驱动 UI 刷新）
+	go app.eventLoop()
 
-	// 确定初始选中版本
-	app.determineInitialPack()
-
-	app.buildUI().Run()
+	app.mw.Run()
 	return nil
 }
 
-func (a *App) buildUI() *walk.MainWindow {
+// buildUI 构建主窗口布局
+func (a *App) buildUI() {
 	mw := new(walk.MainWindow)
 	a.mw = mw
 
@@ -98,9 +112,9 @@ func (a *App) buildUI() *walk.MainWindow {
 					Label{Text: "MC Starter", Font: Font{PointSize: 11, Bold: true}},
 					HSpacer{},
 					PushButton{
-						Text:  "⚙",
-						MinSize: Size{28, 0},
-						MaxSize: Size{28, 0},
+						Text:     "⚙",
+						MinSize:  Size{28, 0},
+						MaxSize:  Size{28, 0},
 						OnClicked: func() {
 							a.openSettings()
 						},
@@ -114,7 +128,7 @@ func (a *App) buildUI() *walk.MainWindow {
 					Label{Text: "版本:"},
 					ComboBox{
 						AssignTo: &a.packCB,
-						Model:    a.packNames(),
+						Model:    make([]string, 0),
 						OnCurrentIndexChanged: func() {
 							a.onPackSelected()
 						},
@@ -135,11 +149,11 @@ func (a *App) buildUI() *walk.MainWindow {
 					},
 					PushButton{
 						AssignTo: &a.updateBtn,
-						Text:     "🔄 更新",
+						Text:     "📥 安装",
 						MinSize:  Size{100, 0},
 						Enabled:  false,
 						OnClicked: func() {
-							a.startSync()
+							a.orc.UpdateOrInstall()
 						},
 					},
 				},
@@ -161,7 +175,8 @@ func (a *App) buildUI() *walk.MainWindow {
 						AssignTo: &a.cancelBtn,
 						Text:     "取消",
 						OnClicked: func() {
-							a.cancelSync()
+							a.orc.Cancel()
+							a.cancelBtn.SetEnabled(false)
 						},
 					},
 				},
@@ -170,7 +185,7 @@ func (a *App) buildUI() *walk.MainWindow {
 			Label{
 				AssignTo: &a.verBar,
 				Text:     "",
-				Font: Font{PointSize: 9},
+				Font:     Font{PointSize: 9},
 				TextColor: walk.RGB(100, 100, 100),
 			},
 			// 状态
@@ -183,152 +198,134 @@ func (a *App) buildUI() *walk.MainWindow {
 	}.Create()); err != nil {
 		panic(err)
 	}
-
-	// 初始状态更新
-	a.refreshUI()
-
-	// 首次启动检测：无配置时弹出向导
-	isFirstRun := a.localCfg.ServerURL == ""
-	if isFirstRun {
-		mw.Synchronize(func() {
-			runSetupWizard(a)
-		})
-	}
-
-	return mw
 }
 
 // ============================================================
-// 数据 & 刷新
+// 事件循环（EventBus 驱动 UI 刷新）
 // ============================================================
 
-// packNames 返回下拉列表的显示名
-func (a *App) packNames() []string {
-	names := make([]string, 0, len(a.serverPacks))
-	for _, p := range a.serverPacks {
-		display := p.DisplayName
-		if a.localCfg != nil {
-			if s, ok := a.localCfg.Packs[p.Name]; ok && s.LocalVersion != "" {
-				display = fmt.Sprintf("%s v%s", p.DisplayName, s.LocalVersion)
+func (a *App) eventLoop() {
+	ch := a.eb.Subscribe()
+	defer a.eb.Unsubscribe(ch)
+
+	for evt := range ch {
+		switch evt.Type {
+		case EvtProgress:
+			if data, ok := evt.Data.(ProgressData); ok {
+				a.mw.Synchronize(func() {
+					a.progress.SetValue(data.Percent)
+					a.progressLabel.SetText(fmt.Sprintf("%d%%", data.Percent))
+				})
 			}
+
+		case EvtStateChange:
+			a.mw.Synchronize(func() {
+				a.refreshUI()
+			})
+
+		case EvtError:
+			if data, ok := evt.Data.(ErrorData); ok {
+				a.mw.Synchronize(func() {
+					a.statusBar.SetTextColor(walk.RGB(200, 50, 50))
+					a.statusBar.SetText(fmt.Sprintf("错误: %s", data.Message))
+				})
+			}
+
+		case EvtLog:
+			// 日志暂不显示在 UI 上
+
+		case EvtSyncDone:
+			if data, ok := evt.Data.(SyncDoneData); ok {
+				a.mw.Synchronize(func() {
+					if data.Err != nil {
+						walk.MsgBox(a.mw, "同步失败",
+							fmt.Sprintf("%s 同步失败: %v", data.PackName, data.Err), walk.MsgBoxOK)
+					} else {
+						walk.MsgBox(a.mw, "完成",
+							fmt.Sprintf("%s 已更新到 %s", data.PackName, data.NewVersion), walk.MsgBoxOK)
+					}
+					a.refreshUI()
+				})
+			}
+
+		case EvtPackList:
+			a.mw.Synchronize(func() {
+				a.refreshUI()
+			})
 		}
-		names = append(names, display)
 	}
-	if len(names) == 0 {
-		names = append(names, "(无可用版本)")
-	}
-	return names
 }
 
-func (a *App) refreshServerPacks() {
-	if a.localCfg == nil || a.localCfg.ServerURL == "" {
-		return
-	}
-	resp, err := a.cfg.FetchPacks(a.localCfg.ServerURL)
-	if err != nil {
-		return
-	}
-	a.serverPacks = resp.Packs
-}
+// ============================================================
+// UI 刷新（根据 ViewModel 状态更新控件）
+// ============================================================
 
-func (a *App) determineInitialPack() {
-	if len(a.serverPacks) == 0 {
-		return
-	}
-	for _, p := range a.serverPacks {
-		if p.Primary {
-			a.selectedPack = p.Name
-			a.latestVersion = p.LatestVersion
-			return
-		}
-	}
-	a.selectedPack = a.serverPacks[0].Name
-	a.latestVersion = a.serverPacks[0].LatestVersion
-}
-
+// refreshUI 刷新所有 Walk 控件状态
 func (a *App) refreshUI() {
-	packName := a.selectedPack
-	if packName == "" {
-		if a.verBar != nil {
-			a.verBar.SetText("")
-		}
-		if a.statusBar != nil {
-			a.statusBar.SetText("就绪")
-		}
-		return
-	}
+	status := a.vm.CurrentPackStatus()
 
-	// 取显示名
-	var displayName string
-	for _, p := range a.serverPacks {
-		if p.Name == packName {
-			displayName = p.DisplayName
-			break
-		}
-	}
-	if displayName == "" {
-		displayName = packName
-	}
-
-	// 本地版本
-	if a.localCfg != nil {
-		if s, ok := a.localCfg.Packs[packName]; ok {
-			a.currentVersion = s.LocalVersion
-		}
-	}
-	if a.currentVersion == "" {
-		a.currentVersion = "(未安装)"
-	}
-
-	// 检查是否有更新
-	a.hasUpdate = a.latestVersion != "" && a.currentVersion != "" &&
-		a.currentVersion != a.latestVersion && a.currentVersion != "(未安装)"
-
-	// 更新版本状态栏
-	if a.verBar != nil {
-		verText := fmt.Sprintf("%s  本地: %s  最新: %s", displayName, a.currentVersion, a.latestVersion)
-		a.verBar.SetText(verText)
-	}
-
-	// 更新下拉列表（如果版本号变了）
+	// 下拉列表
 	if a.packCB != nil {
-		a.packCB.SetModel(a.packNames())
+		names := a.vm.PackNames()
+		a.packCB.SetModel(names)
+	}
+
+	// 版本状态栏
+	if a.verBar != nil {
+		a.verBar.SetText(a.vm.VersionBarText())
 	}
 
 	// 更新按钮
 	if a.updateBtn != nil {
-		a.updateBtn.SetEnabled(a.hasUpdate && !a.syncing)
-	}
-	if a.openBtn != nil {
-		a.openBtn.SetEnabled(!a.syncing)
+		a.updateBtn.SetText(status.UpdateBtnText)
+		a.updateBtn.SetEnabled(status.UpdateEnabled)
 	}
 
-	// 更新状态栏
+	// 打开启动器按钮
+	if a.openBtn != nil {
+		a.openBtn.SetEnabled(!a.vm.StateMachine().IsBusy())
+	}
+
+	// 状态栏
 	if a.statusBar != nil {
-		if a.currentVersion == "(未安装)" {
-			a.statusBar.SetText("未安装，请点击更新")
-			a.statusBar.SetTextColor(walk.RGB(200, 150, 0))
-		} else if a.hasUpdate {
-			a.statusBar.SetText("有可用更新")
-			a.statusBar.SetTextColor(walk.RGB(200, 100, 0))
-		} else {
-			a.statusBar.SetText("已是最新")
+		a.statusBar.SetText(status.StatusText)
+		switch status.StatusColor {
+		case StatusGreen:
 			a.statusBar.SetTextColor(walk.RGB(0, 170, 0))
+		case StatusOrange:
+			a.statusBar.SetTextColor(walk.RGB(200, 150, 0))
+		case StatusRed:
+			a.statusBar.SetTextColor(walk.RGB(200, 50, 50))
+		default:
+			a.statusBar.SetTextColor(walk.RGB(100, 100, 100))
 		}
 	}
+
+	// 进度行可见性
+	busy := a.vm.StateMachine().IsBusy()
+
+	// 取消按钮状态
+	if a.cancelBtn != nil {
+		a.cancelBtn.SetEnabled(busy)
+	}
 }
+
+// ============================================================
+// 版本选择
+// ============================================================
 
 func (a *App) onPackSelected() {
 	if a.packCB == nil {
 		return
 	}
 	idx := a.packCB.CurrentIndex()
-	if idx < 0 || idx >= len(a.serverPacks) {
+	packs := a.vm.ServerPacks()
+	if idx < 0 || idx >= len(packs) {
 		return
 	}
-	p := a.serverPacks[idx]
-	a.selectedPack = p.Name
-	a.latestVersion = p.LatestVersion
+
+	p := packs[idx]
+	a.vm.SelectPack(p.Name)
 	a.refreshUI()
 }
 
@@ -341,103 +338,51 @@ func (a *App) openSettings() {
 }
 
 func (a *App) openLauncher() {
-	if a.syncing || a.selectedPack == "" {
+	if a.vm.StateMachine().IsBusy() {
 		return
 	}
-	if a.currentVersion == "(未安装)" {
-		walk.MsgBox(a.mw, "提示", "请先点击更新安装此版本", walk.MsgBoxOK)
+	packName := a.vm.SelectedPack()
+	if packName == "" {
 		return
 	}
-	if a.localCfg.Launcher == "" {
+
+	status := a.vm.CurrentPackStatus()
+	if !status.IsInstalled {
+		walk.MsgBox(a.mw, "提示", "请先点击安装此版本", walk.MsgBoxOK)
+		return
+	}
+
+	localCfg := a.vm.LocalConfig()
+	if localCfg.Launcher == "" {
 		walk.MsgBox(a.mw, "提示", "未配置启动器路径，请点击右上角「⚙」进行设置", walk.MsgBoxOK)
 		return
 	}
-	walk.MsgBox(a.mw, "提示", fmt.Sprintf("打开启动器: %s\n（功能开发中）", a.selectedPack), walk.MsgBoxOK)
-}
 
-func (a *App) startSync() {
-	if a.syncing || a.selectedPack == "" || !a.hasUpdate {
+	// 通过 Orchestrator 校验路径，实际启动
+	if err := a.orc.OpenLauncher(); err != nil {
+		walk.MsgBox(a.mw, "错误", fmt.Sprintf("打开启动器失败: %v", err), walk.MsgBoxOK)
 		return
 	}
 
-	a.Lock()
-	a.syncing = true
-	a.syncCancel = make(chan struct{})
-	a.Unlock()
-
-	a.updateBtn.SetEnabled(false)
-	a.openBtn.SetEnabled(false)
-	a.statusBar.SetText("正在同步...")
-	a.statusBar.SetTextColor(walk.RGB(200, 150, 0))
-
-	// 显示进度行
-	// Walk 中动态显示控件需要通过 layout 操作，这里用简单的标签提示
-	if a.cancelBtn != nil {
-		a.cancelBtn.SetEnabled(true)
+	// 执行实际启动
+	if err := openLauncherExternal(localCfg.Launcher); err != nil {
+		walk.MsgBox(a.mw, "错误", fmt.Sprintf("启动启动器失败: %v", err), walk.MsgBoxOK)
 	}
-	if a.progress != nil {
-		a.progress.SetValue(0)
-	}
-
-	go func() {
-		for i := 0; i <= 100; i += 10 {
-			select {
-			case <-a.syncCancel:
-				a.handleSyncCancel()
-				return
-			default:
-			}
-			time.Sleep(200 * time.Millisecond)
-			a.mw.Synchronize(func() {
-				if a.progress != nil {
-					a.progress.SetValue(i)
-				}
-				if a.progressLabel != nil {
-					a.progressLabel.SetText(fmt.Sprintf("%d%%", i))
-				}
-			})
-		}
-
-		a.mw.Synchronize(func() {
-			a.Lock()
-			a.syncing = false
-			a.Unlock()
-
-			if a.localCfg != nil && a.selectedPack != "" {
-				if s, ok := a.localCfg.Packs[a.selectedPack]; ok {
-					s.LocalVersion = a.latestVersion
-					a.localCfg.Packs[a.selectedPack] = s
-					a.cfg.SaveLocal(a.localCfg)
-				}
-			}
-
-			a.currentVersion = a.latestVersion
-			a.refreshUI()
-			walk.MsgBox(a.mw, "完成", fmt.Sprintf("%s 已更新到 %s", a.selectedPack, a.latestVersion), walk.MsgBoxOK)
-			a.statusBar.SetText("已是最新")
-		})
-	}()
 }
 
-func (a *App) cancelSync() {
-	if !a.syncing {
-		return
-	}
-	a.cancelBtn.SetEnabled(false)
-	close(a.syncCancel)
+// ============================================================
+// 设置/向导依赖的兼容方法
+// settings.go 和 setup.go 还需要这些
+// ============================================================
+
+// refreshServerPacks 刷新服务端版本列表（设置保存后调用）
+func (a *App) refreshServerPacks() {
+	a.vm.RefreshPacks()
 }
 
-func (a *App) handleSyncCancel() {
-	a.Lock()
-	a.syncing = false
-	a.Unlock()
-
-	a.mw.Synchronize(func() {
-		a.statusBar.SetText("已取消")
-		a.statusBar.SetTextColor(walk.RGB(200, 100, 0))
-		a.refreshUI()
-		walk.MsgBox(a.mw, "提示", "同步已取消，已回滚到同步前状态", walk.MsgBoxOK)
-	})
+// determineInitialPack 确定初始选中版本（设置保存后调用）
+func (a *App) determineInitialPack() {
+	a.vm.DetermineInitialPack()
 }
 
 // RunGUI 兼容性入口
