@@ -114,12 +114,13 @@ func (a *App) buildUI() {
 	mw := new(walk.MainWindow)
 
 	if err := (MainWindow{
-		AssignTo: &mw,
-		Title:    "MC Starter",
-		MinSize:  Size{380, 230},
-		MaxSize:  Size{380, 230},
-		Size:     Size{380, 230},
-		Layout:   VBox{MarginsZero: false, Margins: Margins{10, 10, 10, 10}},
+		AssignTo:   &mw,
+		Title:      "MC Starter",
+		MinSize:    Size{380, 230},
+		MaxSize:    Size{380, 230},
+		Size:       Size{380, 230},
+		MaximizeBox: false,
+		Layout:     VBox{MarginsZero: false, Margins: Margins{10, 10, 10, 10}},
 		Children: []Widget{
 			// 标题栏 + 设置按钮
 			Composite{
