@@ -95,6 +95,8 @@ type PackDetail struct {
 	FileCount     int            `json:"file_count"`
 	TotalSize     int64          `json:"total_size"`
 	Channels      []ChannelInfo  `json:"channels,omitempty"` // P6: 频道列表
+	MCVersion     string         `json:"mc_version,omitempty"`  // 所需 MC 版本
+	Loader        string         `json:"loader,omitempty"`       // 所需加载器，格式 "<type>-<ver>" 或空
 }
 
 // ============================================================
