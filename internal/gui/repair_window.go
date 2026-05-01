@@ -87,6 +87,22 @@ func showRepairWindow(app *App, vm *ViewModel, orc *Orchestrator) {
 		Size:     Size{420, 340},
 		Layout:   VBox{Margins: Margins{10, 10, 10, 10}},
 		Children: []Widget{
+			// 当前版本提示
+			Composite{
+				Layout: HBox{},
+				Children: []Widget{
+					Label{
+						Text:     "当前版本: ",
+						Font:     Font{PointSize: 9},
+						TextColor: walk.RGB(100, 100, 100),
+					},
+					Label{
+						Text:     currentVersionText(vm),
+						Font:     Font{PointSize: 9, Bold: true},
+						TextColor: walk.RGB(80, 80, 80),
+					},
+				},
+			},
 			// 进度显示（Label 方式，不用进度条）
 			Composite{
 				Layout: HBox{},
@@ -308,7 +324,7 @@ func getRepairConfirm(action repairAction) (string, string) {
 				"会保留你的存档和截图，版本会自动更新到最新。\n\n确定执行吗？"
 	case actionMCRepair:
 		return "确认 MC 修复",
-			"将重新安装 Minecraft 本体和模组加载器（Fabric），版本会自动更新到最新。\n\n" +
+			"将重新安装 Minecraft 本体和模组加载器，版本会与服务端同步。\n\n" +
 				"模组文件不会变动。确定执行吗？"
 	case actionModSync:
 		return "确认模组同步",
@@ -392,6 +408,18 @@ func (rs *repairWindowState) refreshUI() {
 	if rs.backupCB != nil {
 		rs.backupCB.SetEnabled(!b)
 	}
+}
+
+// currentVersionText 获取当前选中版本的显示文字
+func currentVersionText(vm *ViewModel) string {
+	status := vm.CurrentPackStatus()
+	if status.DisplayName == "" {
+		return "(未选择版本)"
+	}
+	if status.CurrentVersion == "" || status.CurrentVersion == "(未安装)" {
+		return fmt.Sprintf("%s (未安装)", status.DisplayName)
+	}
+	return fmt.Sprintf("%s v%s", status.DisplayName, status.CurrentVersion)
 }
 
 func (rs *repairWindowState) setProgress(text string) {
