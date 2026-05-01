@@ -111,31 +111,29 @@ mc-starter 的 GUI 定位是 **小工具**，不是大应用：
 │                                            │
 │  ─────────────────────────────────────     │
 │                                            │
-│  ☑ 修复前创建备份                          │
+│  备份: [05/01/26 22:30  ▼]                │
+│        （下拉框显示最近 5 个备份）          │
+│  [🔄 恢复选中备份]                        │
 │                                            │
-│  备份: [最新: 05/01/26 22:30 ▼]           │
-│  （下拉框显示最近 3 个备份的时间戳）       │
-│                                            │
-│                       [关闭]               │
 └────────────────────────────────────────────┘
 ```
 
 ### 设计要点
 
 - **每个功能是一个独立按钮**，不是选项+执行按钮
-- **修复前创建备份**：默认勾选，点任意修复按钮时触发
-- **备份下拉框**：显示最近 3 个备份时间戳（mm/dd/yy hh:mm 格式）。点修复按钮时如果有最新备份则自动使用该备份 ID；点下拉选中旧备份可手动回滚
-- **关闭**：关闭修复窗口，不影响主界面
+- **备份策略**：点任意修复按钮时弹窗询问"是否备份当前用户数据？"，选"是"则先 `repair.CreateBackup()` 再执行修复，选"否"直接执行
+- **备份下拉框**：显示最近 5 个备份时间戳（mm/dd/yy hh:mm 格式）。选中后点"恢复选中备份"触发 `repair.Repair(mcDir, ActionRollback, backupID)`
+- **关闭**：使用 Windows 窗口自带关闭按钮，不需要额外加
 
 ### 选项与现有代码覆盖
 
 | 功能按钮 | 行为 | 现有代码 | 状态 |
 |---------|------|---------|------|
-| 🔧 执行全量修复 | 勾选备份则调用 `repair.CreateBackup(mcDir, ReasonRepair)` → `repair.Repair(mcDir, ActionCleanAll)` 清理 mods/config/resourcepacks/shaders → 提示用户回主界面点安装 | `internal/repair/repair.go` Repair() + backup.go | ✅ 可用 |
+| 🔧 执行全量修复 | 弹窗询问是否备份 → 可选 `repair.CreateBackup(mcDir, ReasonRepair)` → `repair.Repair(mcDir, ActionCleanAll)` 清理 mods/config/resourcepacks/shaders → 提示用户回主界面点安装 | `internal/repair/repair.go` Repair() + backup.go | ✅ 可用 |
 | ⚡ 执行 MC 修复 | `updater.EnsureVersion()` 重新走一遍 MC 本体+Loader 安装 | `internal/launcher/update.go` EnsureVersion() | ✅ 可用 |
 | 📦 执行模组同步 | 清理 mods/ → `updater.UpdatePack(forceFull=true)` 全量覆盖 | `internal/launcher/update.go` UpdatePack() | ✅ 可用（forceFull） |
 | 📤 上传崩溃日志 | 扫描 .minecraft/crash-reports/ → 调用 `repair.CollectAndUpload()` | `internal/repair/upload.go` | ✅ 可用 |
-| 备份下拉框回滚 | 选中旧备份 → `repair.Repair(mcDir, ActionRollback, backupID)` | `internal/repair/repair.go` rollback() | ✅ 可用 |
+| 🔄 恢复选中备份 | 下拉框选中旧备份 → 点此按钮触发 `repair.Repair(mcDir, ActionRollback, backupID)` | `internal/repair/repair.go` rollback() | ✅ 可用 |
 
 ---
 
