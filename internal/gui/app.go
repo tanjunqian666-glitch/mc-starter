@@ -18,9 +18,16 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
+)
+
+// Win32 API 用于窗口样式控制（walk 未暴露的功能）
+var (
+	user32SetWindowLong = syscall.NewLazyDLL("user32.dll").NewProc("SetWindowLongW")
+	user32SetWindowPos  = syscall.NewLazyDLL("user32.dll").NewProc("SetWindowPos")
 )
 
 // App 全局 GUI 应用状态
@@ -114,13 +121,12 @@ func (a *App) buildUI() {
 	mw := new(walk.MainWindow)
 
 	if err := (MainWindow{
-		AssignTo:   &mw,
-		Title:      "MC Starter",
-		MinSize:    Size{380, 230},
-		MaxSize:    Size{380, 230},
-		Size:       Size{380, 230},
-		MaximizeBox: false,
-		Layout:     VBox{MarginsZero: false, Margins: Margins{10, 10, 10, 10}},
+		AssignTo: &mw,
+		Title:    "MC Starter",
+		MinSize:  Size{380, 230},
+		MaxSize:  Size{380, 230},
+		Size:     Size{380, 230},
+		Layout:   VBox{MarginsZero: false, Margins: Margins{10, 10, 10, 10}},
 		Children: []Widget{
 			// 标题栏 + 设置按钮
 			Composite{
@@ -216,6 +222,22 @@ func (a *App) buildUI() {
 		panic(err)
 	}
 	a.mw = mw // AssignTo 更新了局部指针，这里同步到 App 字段
+
+	// 去掉最大化按钮（walk 的 MaximizeBox 字段不生效）
+	removeMaximizeButton(mw)
+}
+
+// removeMaximizeButton 通过 Win32 API 去掉窗口的最大化按钮
+func removeMaximizeButton(w *walk.MainWindow) {
+	hwnd := w.Handle()
+	const GWL_STYLE = ^uintptr(15) // -16
+	const WS_MAXIMIZEBOX = 0x00010000
+	style, _, _ := user32SetWindowLong.Call(uintptr(hwnd), GWL_STYLE, 0)
+	style &^= WS_MAXIMIZEBOX
+	user32SetWindowLong.Call(uintptr(hwnd), GWL_STYLE, style)
+	// 通知窗口重绘标题栏
+	const SWP_FLAGS = 0x0001 | 0x0002 | 0x0020 | 0x0004 // NOSIZE|NOMOVE|FRAMECHANGED|NOZORDER
+	user32SetWindowPos.Call(uintptr(hwnd), 0, 0, 0, 0, 0, SWP_FLAGS)
 }
 
 // ============================================================
