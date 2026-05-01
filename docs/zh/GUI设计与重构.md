@@ -343,43 +343,43 @@ Idle ──→ Checking ──→ Downloading ──→ Installing ──→ Don
 
 ### 阶段 1：基础设施（先在 CLI 验证，再接 GUI）
 
-| ID | 任务 | 依赖 | 涉及文件 | 预计工时 |
-|----|------|------|---------|---------|
-| G.1 | 建 EventBus | — | `internal/gui/eventbus.go` | 1h |
-| G.2 | 建 StateMachine | — | `internal/gui/state.go` | 1h |
-| G.3 | 从 `App` 中抽 ViewModel | G.1, G.2 | `internal/gui/viewmodel.go` | 2h |
-| G.4 | 建 Orchestrator | G.3 | `internal/gui/orchestrator.go` | 2h |
-| G.5 | 简化 `app.go`，只留 UI 布局 | G.4 | `internal/gui/app.go` | 2h |
+| ID | 任务 | 依赖 | 涉及文件 | 预计工时 | 状态 |
+|----|------|------|---------|---------|------|
+| G.1 | 建 EventBus | — | `internal/gui/eventbus.go` | 1h | ✅ |
+| G.2 | 建 StateMachine | — | `internal/gui/state.go` | 1h | ✅ |
+| G.3 | 从 `App` 中抽 ViewModel | G.1, G.2 | `internal/gui/viewmodel.go` | 2h | ✅ |
+| G.4 | 建 Orchestrator | G.3 | `internal/gui/orchestrator.go` | 2h | ✅ |
+| G.5 | 简化 `app.go`，只留 UI 布局 | G.4 | `internal/gui/app.go` | 2h | ✅ |
 
 ### 阶段 2：真更新流程接上
 
-| ID | 任务 | 依赖 | 涉及文件 | 预计工时 |
-|----|------|------|---------|---------|
-| G.6 | startSync 改调 UpdatePack+EnsureVersion | G.5 | `orchestrator.go` | 2h |
-| G.7 | 安装/更新按钮文案动态切换 | G.6 | `viewmodel.go`, `app.go` | 1h |
-| G.8 | 修复工具窗口（4 选项） | G.5 | `internal/gui/repair_window.go` | 3h |
-| G.9 | 修复选项对接 repair.Repair | G.8 | `orchestrator.go` | 2h |
-| G.10 | 修复选项对接 EnsureVersion | G.8 | `orchestrator.go` | 1h |
-| G.11 | 修复选项对接 UpdatePack(forceFull) | G.8 | `orchestrator.go` | 1h |
-| G.12 | 崩溃日志上传入口 | G.8 | `orchestrator.go` | 1h |
-| G.13 | 进度条对接 EventBus | G.6 | `viewmodel.go` | 1h |
+| ID | 任务 | 依赖 | 涉及文件 | 预计工时 | 状态 |
+|----|------|------|---------|---------|------|
+| G.6 | startSync 改调 UpdatePack+EnsureVersion | G.5 | `orchestrator.go` | 2h | ✅ (已含在 G.4 UpdateOrInstall) |
+| G.7 | 安装/更新按钮文案动态切换 | G.6 | `viewmodel.go`, `app.go` | 1h | ✅ (ViewModel.PackStatus 自动) |
+| G.8 | 修复工具窗口（4 选项+互斥+进度+备份恢复） | G.5 | `internal/gui/repair_window.go` | 3h | ✅ |
+| G.9 | 修复选项对接 repair.Repair | G.8 | `orchestrator.go` | 2h | ✅ |
+| G.10 | 修复选项对接 EnsureVersion | G.8 | `orchestrator.go` | 1h | ✅ |
+| G.11 | 修复选项对接 UpdatePack(forceFull) | G.8 | `orchestrator.go` | 1h | ✅ |
+| G.12 | 崩溃日志上传入口 | G.8 | `orchestrator.go` | 1h | ✅ |
+| G.13 | 进度条对接 EventBus | G.6 | `viewmodel.go` | 1h | ✅ |
 
 ### 阶段 3：多版本切换 + 副版本
 
-| ID | 任务 | 依赖 | 涉及文件 | 预计工时 |
-|----|------|------|---------|---------|
-| G.14 | 下拉框切换版本时 UI 联动 | G.6 | `app.go`, `viewmodel.go` | 1h |
-| G.15 | 副版本启用时才显示在下拉框 | G.14 | `app.go` | 1h |
+| ID | 任务 | 依赖 | 涉及文件 | 预计工时 | 状态 |
+|----|------|------|---------|---------|------|
+| G.14 | 下拉框切换版本时 UI 联动 | G.6 | `app.go`, `viewmodel.go` | 1h | 🔄 |
+| G.15 | 副版本启用时才显示在下拉框 | G.14 | `app.go` | 1h | ⬜ |
 | G.16 | 副版本独立 MC 目录 | — | 已有 `settings.go` | ✅ 已有 |
 
 ### 阶段 4：收尾
 
-| ID | 任务 | 依赖 | 涉及文件 | 预计工时 |
-|----|------|------|---------|---------|
-| G.17 | 更新结果弹窗 | G.6 | `orchestrator.go` | 0.5h |
-| G.18 | 取消同步/回滚 | G.6 | `orchestrator.go` | 1h |
-| G.19 | 错误处理和重试 | G.6 | `orchestrator.go` | 1h |
-| G.20 | Windows VM 端到端测试 | 全部 | — | 2h |
+| ID | 任务 | 依赖 | 涉及文件 | 预计工时 | 状态 |
+|----|------|------|---------|---------|------|
+| G.17 | 更新结果弹窗 | G.6 | `orchestrator.go` | 0.5h | ✅ (EventBus SyncDone) |
+| G.18 | 取消同步/回滚 | G.6 | `orchestrator.go` | 1h | ✅ (Orchestrator.Cancel) |
+| G.19 | 错误处理和重试 | G.6 | `orchestrator.go` | 1h | ✅ (EventBus Error 事件) |
+| G.20 | Windows VM 端到端测试 | 全部 | — | 2h | ⬜ |
 
 ### 总计：~24h
 
