@@ -227,6 +227,18 @@ func (rs *repairWindowState) startRepair(action repairAction) {
 
 	rs.refreshUI()
 
+	// MC 修复和模组同步需要版本已是最新
+	if action == actionMCRepair || action == actionModSync {
+		status := rs.vm.CurrentPackStatus()
+		if status.HasUpdate || !status.IsInstalled {
+			walk.MsgBox(rs.dlg, "无法执行",
+				"当前版本不是最新，如需使用 MC 修复和模组同步，请先回到主界面点击更新。\n\n"+
+					"如果你无法更新，请使用全量修复。", walk.MsgBoxOK)
+			rs.setDone()
+			return
+		}
+	}
+
 	// 所有操作先弹窗确认，用用户能看懂的语言
 	confirmTitle, confirmText := getRepairConfirm(action)
 	result, dlgErr := walk.MsgBox(rs.dlg, confirmTitle, confirmText, walk.MsgBoxYesNo)
@@ -395,11 +407,23 @@ func (rs *repairWindowState) refreshUI() {
 	b := rs.busy
 	rs.mu.Unlock()
 
-	// 所有按钮的 Enabled 同步
+	// 检查版本是否最新
+	status := rs.vm.CurrentPackStatus()
+	isLatest := status.IsInstalled && !status.HasUpdate
+
+	// MC 修复和模组同步只在版本最新时可用
 	for _, btn := range []*walk.PushButton{
-		rs.cleanAllBtn, rs.mcRepairBtn, rs.modSyncBtn,
+		rs.cleanAllBtn, rs.modSyncBtn,
 		rs.crashUploadBtn, rs.restoreBtn,
 	} {
+		if btn != nil {
+			btn.SetEnabled(!b)
+		}
+	}
+	// MC 修复按钮
+	if rs.mcRepairBtn != nil {
+		rs.mcRepairBtn.SetEnabled(!b && isLatest)
+	}
 		if btn != nil {
 			btn.SetEnabled(!b)
 		}
