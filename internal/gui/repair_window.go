@@ -407,23 +407,11 @@ func (rs *repairWindowState) refreshUI() {
 	b := rs.busy
 	rs.mu.Unlock()
 
-	// 检查版本是否最新
-	status := rs.vm.CurrentPackStatus()
-	isLatest := status.IsInstalled && !status.HasUpdate
-
-	// MC 修复和模组同步只在版本最新时可用
+	// 所有按钮始终可用（MC 修复/模组同步点击后内置检查版本，弹提示引导用户）
 	for _, btn := range []*walk.PushButton{
-		rs.cleanAllBtn, rs.modSyncBtn,
+		rs.cleanAllBtn, rs.mcRepairBtn, rs.modSyncBtn,
 		rs.crashUploadBtn, rs.restoreBtn,
 	} {
-		if btn != nil {
-			btn.SetEnabled(!b)
-		}
-	}
-	// MC 修复按钮
-	if rs.mcRepairBtn != nil {
-		rs.mcRepairBtn.SetEnabled(!b && isLatest)
-	}
 		if btn != nil {
 			btn.SetEnabled(!b)
 		}
