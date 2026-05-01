@@ -53,6 +53,9 @@ type App struct {
 }
 
 // Run 启动 GUI
+// 首次运行：先建主窗口 → mw.Run()（此时消息循环可用）
+//   → 在 Starting 事件中弹向导（模态，阻塞主窗口直到完成）
+// 再次运行：直接显示
 func Run(cfgDir string) error {
 	// 1. 初始化三层
 	vm := NewViewModel(cfgDir)
@@ -75,19 +78,29 @@ func Run(cfgDir string) error {
 	// 2. 启动 EventBus 分发
 	go eb.Run()
 
-	// 3. 构建 UI
+	// 3. 构建主窗口
 	app.buildUI()
 
-	// 4. 初始选中版本
+	// 4. 首次运行：在 mw.Starting 事件里弹向导
+	//    mw.Run() 启动消息循环后立即触发 Starting
+	//    向导作为模态 Dialog 在消息循环中运行
+	if isFirstRun {
+		app.mw.Starting().Attach(func() {
+			if err := runSetupWizard(app); err != nil {
+				// 向导取消/未完成 → 关闭主窗口退出
+				app.mw.Close()
+				return
+			}
+			// 向导完成 → 重新加载配置并刷新 UI
+			vm.reloadConfig()
+		})
+	}
+
+	// 5. 初始选中版本 + UI 刷新（非首次直接生效，首次等待 Starting 中向导完成）
 	vm.DetermineInitialPack()
 	app.refreshUI()
 
-	// 5. 首次启动向导（注意：mw.Run() 还没调，不要在 Synchronize 里包裹）
-	if isFirstRun {
-		runSetupWizard(app)
-	}
-
-	// 6. 启动 EventBus 事件循环（驱动 UI 刷新）
+	// 6. 启动 EventBus 事件循环
 	go app.eventLoop()
 
 	app.mw.Run()

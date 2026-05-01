@@ -16,7 +16,8 @@ import (
 // ============================================================
 
 // runSetupWizard 首次启动时弹出配置向导
-func runSetupWizard(a *App) {
+// 返回 nil 表示配置完成，返回 error 表示用户取消或出错
+func runSetupWizard(a *App) error {
 	var dlg *walk.Dialog
 	var nextPB, prevPB, cancelPB *walk.PushButton
 	var stepLabel, descLabel *walk.Label
@@ -354,11 +355,6 @@ func runSetupWizard(a *App) {
 								a.mu.Unlock()
 								a.cfg.SaveLocal(a.localCfg)
 
-								go func() {
-									a.refreshServerPacks()
-									a.determineInitialPack()
-									a.mw.Synchronize(func() { a.refreshUI() })
-								}()
 								dlg.Accept()
 							}
 						},
@@ -374,11 +370,17 @@ func runSetupWizard(a *App) {
 			},
 		},
 	}.Create(a.mw)); err != nil {
-		walk.MsgBox(a.mw, "错误", fmt.Sprintf("启动配置向导失败: %v", err), walk.MsgBoxOK)
-		return
+		walk.MsgBox(nil, "错误", fmt.Sprintf("启动配置向导失败: %v", err), walk.MsgBoxOK)
+		return fmt.Errorf("向导创建失败: %w", err)
 	}
 
 	showStep(0)
+	res := dlg.Run()
+
+	if res != walk.DlgCmdOK {
+		return fmt.Errorf("用户取消")
+	}
+	return nil
 }
 
 // ============================================================

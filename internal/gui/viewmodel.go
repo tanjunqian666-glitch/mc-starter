@@ -138,6 +138,27 @@ func (vm *ViewModel) SaveLocalConfig(localCfg *model.LocalConfig) error {
 	return nil
 }
 
+// reloadConfig 从磁盘重新加载本地配置（首次向导完成后调用）
+func (vm *ViewModel) reloadConfig() {
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+
+	localCfg, err := vm.cfg.LoadLocal()
+	if err != nil {
+		return
+	}
+	vm.localCfg = localCfg
+	if vm.localCfg.Packs == nil {
+		vm.localCfg.Packs = make(map[string]model.PackState)
+	}
+	if vm.localCfg.MinecraftDirs == nil {
+		vm.localCfg.MinecraftDirs = map[string]string{}
+	}
+
+	// 重新加载服务端版本列表
+	vm.refreshPacksLocked()
+}
+
 // ============================================================
 // 版本列表
 // ============================================================
