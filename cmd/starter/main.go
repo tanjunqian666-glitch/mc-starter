@@ -61,6 +61,9 @@ func parseGlobalFlags() (cfgDir string, verbose, headless, dryRun bool, remainin
 
 func main() {
 	cfgDir, verbose, headless, dryRun, args := parseGlobalFlags()
+	debug_write("=== starter started at %s ===", time.Now().Format("2006-01-02 15:04:05"))
+	debug_write("args=%v", os.Args)
+	debug_write("cfgDir=%s verbose=%v headless=%v dryRun=%v", cfgDir, verbose, headless, dryRun)
 
 	// P3 自更新: 启动健康检查（新版本首次启动后 10s 健康检测）
 	{
@@ -77,7 +80,9 @@ func main() {
 
 	if len(args) < 2 {
 		// 无参数: 双击场景 → 启动 GUI
+		debug_write("double-click mode: starting GUI...")
 		if err := gui.Run(cfgDir); err != nil {
+			debug_write("GUI Run() FAILED: %v", err)
 			fmt.Fprintf(os.Stderr, "GUI 错误: %v\n", err)
 			os.Exit(1)
 		}

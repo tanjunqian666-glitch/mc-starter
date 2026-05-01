@@ -1,0 +1,10 @@
+{
+  "packs": {
+    "hello-pack": {
+      "name": "hello-pack",
+      "display_name": "hello-v1",
+      "primary": false,
+      "latest_version": "v1.0.0"
+    }
+  }
+}

@@ -149,11 +149,16 @@ func (c *LocalConfig) GetMinecraftDir(packName string) string {
 }
 
 // SetMinecraftDir 设置指定包的 .minecraft 目录
+// packName 为空字符串时视为设置默认目录（key="_default"）
 func (c *LocalConfig) SetMinecraftDir(packName, mcDir string) {
 	if c.MinecraftDirs == nil {
 		c.MinecraftDirs = make(map[string]string)
 	}
-	c.MinecraftDirs[packName] = mcDir
+	key := packName
+	if key == "" {
+		key = "_default"
+	}
+	c.MinecraftDirs[key] = mcDir
 }
 
 // MigrateMinecraftDir 兼容旧字段：读取时将 MinecraftDir 迁移到 MinecraftDirs["_default"]

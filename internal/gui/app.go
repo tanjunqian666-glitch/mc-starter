@@ -75,11 +75,15 @@ func Run(cfgDir string) error {
 		localCfg: vm.LocalConfig(),
 	}
 
+	debugLog("Run(cfgDir=%s) isFirstRun=%v", cfgDir, isFirstRun)
+
 	// 2. 启动 EventBus 分发
 	go eb.Run()
 
 	// 3. 构建主窗口
+	debugLog("buildUI start")
 	app.buildUI()
+	debugLog("buildUI done")
 
 	// 4. 首次运行：在 mw.Starting 事件里弹向导
 	//    mw.Run() 启动消息循环后立即触发 Starting
@@ -93,24 +97,29 @@ func Run(cfgDir string) error {
 			}
 			// 向导完成 → 重新加载配置并刷新 UI
 			vm.reloadConfig()
+			// 向导后才拉服务端列表，需要重新刷新
+			vm.DetermineInitialPack()
+			app.refreshUI()
 		})
 	}
 
 	// 5. 初始选中版本 + UI 刷新（非首次直接生效，首次等待 Starting 中向导完成）
 	vm.DetermineInitialPack()
 	app.refreshUI()
+	debugLog("refreshUI done")
 
 	// 6. 启动 EventBus 事件循环
 	go app.eventLoop()
 
+	debugLog("about to call mw.Run()")
 	app.mw.Run()
+	debugLog("mw.Run() returned — GUI exiting")
 	return nil
 }
 
 // buildUI 构建主窗口布局
 func (a *App) buildUI() {
 	mw := new(walk.MainWindow)
-	a.mw = mw
 
 	if err := (MainWindow{
 		AssignTo: &mw,
@@ -213,6 +222,7 @@ func (a *App) buildUI() {
 	}.Create()); err != nil {
 		panic(err)
 	}
+	a.mw = mw // AssignTo 更新了局部指针，这里同步到 App 字段
 }
 
 // ============================================================

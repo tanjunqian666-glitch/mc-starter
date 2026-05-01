@@ -5,7 +5,7 @@ server:
     tls_cert: ""
     tls_key: ""
 auth:
-    enabled: true
+    enabled: false
     admin_token: change-me-please
     client_require_token: false
 storage:

@@ -1,0 +1,14 @@
+{
+  "version": "v1.0.0",
+  "created_at": "2026-05-02T04:24:48.172605674+08:00",
+  "files": [
+    {
+      "path": "test.txt",
+      "sha1": "22596363b3de40b06f981fb85d82312e8c0ed511",
+      "sha256": "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447",
+      "size": 12
+    }
+  ],
+  "file_count": 1,
+  "total_size": 12
+}

@@ -31,6 +31,7 @@ type subPackUI struct {
 
 // showSettings 打开设置弹窗
 func showSettings(a *App) {
+	debugLog("showSettings start")
 	var dlg *walk.Dialog
 	var acceptPB, cancelPB *walk.PushButton
 
@@ -351,21 +352,29 @@ func showSettings(a *App) {
 			},
 		},
 	}.Create(a.mw)); err != nil {
+		debugLog("showSettings Dialog.Create failed: %v", err)
 		walk.MsgBox(a.mw, "错误", fmt.Sprintf("打开设置失败: %v", err), walk.MsgBoxOK)
 		return
 	}
+	debugLog("showSettings Dialog.Create OK")
 
 	// 弹窗创建后，初始化 MC 目录下拉
+	debugLog("showSettings: refreshMainMCDir start")
 	refreshMainMCDir()
+	debugLog("showSettings: refreshMainMCDir done")
 
 	// 初始化副版本下拉
-	for _, ui := range subUIs {
+	for i, ui := range subUIs {
+		debugLog("showSettings: subUI[%d] pack=%s checked=%v", i, ui.packName, ui.cb.Checked())
 		if ui.cb.Checked() {
+			debugLog("showSettings: refreshSubMCDir for %s", ui.packName)
 			refreshSubMCDir(ui)
 		}
 	}
 
+	debugLog("showSettings: about to call dlg.Run()")
 	dlg.Run()
+	debugLog("showSettings: dlg.Run() returned")
 }
 
 // buildSubPackUI 构建副版本 UI 控件数组（dialog Create 前调用）

@@ -1,0 +1,10 @@
+{
+  "name": "all",
+  "display_name": "全部文件",
+  "dirs": null,
+  "required": true,
+  "priority": 0,
+  "version": "",
+  "file_count": 0,
+  "total_size": 0
+}

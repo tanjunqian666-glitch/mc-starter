@@ -92,6 +92,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 // withMiddleware 包装通用的 HTTP 中间件
 func (s *Server) withMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("→ %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+
 		// CORS
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")

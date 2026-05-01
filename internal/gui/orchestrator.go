@@ -119,15 +119,6 @@ func (o *Orchestrator) UpdateOrInstall() {
 
 	mcDir := localCfg.GetMinecraftDir(packName)
 	if mcDir == "" {
-		// 仅当 pack 有独立目录时尝试
-		if d, ok := localCfg.MinecraftDirs[packName]; ok && d != "" {
-			mcDir = d
-		} else {
-			// 回退到 _default
-			mcDir = localCfg.GetMinecraftDir("_default")
-		}
-	}
-	if mcDir == "" {
 		o.eb.EmitError("同步", "未配置 Minecraft 目录，请先完成设置", nil)
 		o.vm.MarkSyncError()
 		return
