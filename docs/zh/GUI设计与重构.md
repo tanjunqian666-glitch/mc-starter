@@ -368,8 +368,8 @@ Idle ──→ Checking ──→ Downloading ──→ Installing ──→ Don
 
 | ID | 任务 | 依赖 | 涉及文件 | 预计工时 | 状态 |
 |----|------|------|---------|---------|------|
-| G.14 | 下拉框切换版本时 UI 联动 | G.6 | `app.go`, `viewmodel.go` | 1h | 🔄 |
-| G.15 | 副版本启用时才显示在下拉框 | G.14 | `app.go` | 1h | ⬜ |
+| G.14 | 下拉框切换版本时 UI 联动 | G.6 | `app.go`, `viewmodel.go` | 1h | ✅ |
+| G.15 | 副版本启用时才显示在下拉框 | G.14 | `app.go`, `settings.go` | 1h | ✅ |
 | G.16 | 副版本独立 MC 目录 | — | 已有 `settings.go` | ✅ 已有 |
 
 ### 阶段 4：收尾

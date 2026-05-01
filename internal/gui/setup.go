@@ -347,11 +347,11 @@ func runSetupWizard(a *App) {
 								nextPB.SetText("完成")
 
 							default:
-								a.Lock()
+								a.mu.Lock()
 								a.localCfg.ServerURL = serverURL
 								a.localCfg.Launcher = launcherPath
 								a.localCfg.SetMinecraftDir("", mcDir)
-								a.Unlock()
+								a.mu.Unlock()
 								a.cfg.SaveLocal(a.localCfg)
 
 								go func() {

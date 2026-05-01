@@ -25,14 +25,9 @@ package gui
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/gege-tlph/mc-starter/internal/model"
 	"github.com/gege-tlph/mc-starter/internal/repair"
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
@@ -113,7 +108,6 @@ func showRepairWindow(app *App, vm *ViewModel, orc *Orchestrator) {
 				Font:     Font{PointSize: 9},
 				TextColor: walk.RGB(200, 100, 0),
 				Visible:  false,
-				Wrap:     true,
 				MinSize:  Size{380, 0},
 			},
 			// 进度显示（Label 方式，不用进度条）
@@ -207,9 +201,7 @@ func showRepairWindow(app *App, vm *ViewModel, orc *Orchestrator) {
 
 	state.refreshUI()
 
-	if err := dlg.Run(); err != nil {
-		walk.MsgBox(mw, "错误", fmt.Sprintf("打开修复工具失败: %v", err), walk.MsgBoxOK)
-	}
+	dlg.Run()
 }
 
 // ============================================================
@@ -242,8 +234,7 @@ func (rs *repairWindowState) startRepair(action repairAction) {
 
 	// 所有操作先弹窗确认，用用户能看懂的语言
 	confirmTitle, confirmText := getRepairConfirm(action)
-	result, dlgErr := walk.MsgBox(rs.dlg, confirmTitle, confirmText, walk.MsgBoxYesNo)
-	if dlgErr != nil || result != walk.DlgCmdYes {
+	if result := walk.MsgBox(rs.dlg, confirmTitle, confirmText, walk.MsgBoxYesNo); result != walk.DlgCmdYes {
 		rs.setDone()
 		return
 	}
@@ -259,8 +250,7 @@ func (rs *repairWindowState) startRepair(action repairAction) {
 	// 非崩溃日志的操作，再问是否备份
 	if action != actionCrashUpload {
 		withBackup := true
-		backupResult, _ := walk.MsgBox(rs.dlg, "备份", "是否先备份当前用户数据（存档、截图等）？", walk.MsgBoxYesNo)
-		if backupResult == walk.DlgCmdNo {
+		if backupResult := walk.MsgBox(rs.dlg, "备份", "是否先备份当前用户数据（存档、截图等）？", walk.MsgBoxYesNo); backupResult == walk.DlgCmdNo {
 			withBackup = false
 		}
 
@@ -305,8 +295,7 @@ func (rs *repairWindowState) startRestore() {
 		}
 	}
 	confirmText := backupDesc + "\n恢复后将替换当前的 mods、config、存档等文件。\n确定恢复吗？"
-	confirmResult, confirmErr := walk.MsgBox(rs.dlg, "恢复备份", confirmText, walk.MsgBoxYesNo)
-	if confirmErr != nil || confirmResult != walk.DlgCmdYes {
+	if confirmResult := walk.MsgBox(rs.dlg, "恢复备份", confirmText, walk.MsgBoxYesNo); confirmResult != walk.DlgCmdYes {
 		return
 	}
 
@@ -534,53 +523,3 @@ func (rs *repairWindowState) refreshBackups() {
 // ============================================================
 // 打开启动器（供 app.go OpenLauncher 使用）
 // ============================================================
-
-// openLauncherExternal 外部调用，通过 Orchestrator 校验后执行 exec.Command
-func openLauncherExternal(launcherPath string) error {
-	if launcherPath == "" {
-		return fmt.Errorf("启动器路径为空")
-	}
-	if _, err := os.Stat(launcherPath); os.IsNotExist(err) {
-		return fmt.Errorf("启动器文件不存在: %s", launcherPath)
-	}
-
-	// 启动外部 exe（不阻塞）
-	cmd := exec.Command(launcherPath)
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("启动启动器失败: %v", err)
-	}
-
-	// 分离进程后不等待
-	go func() {
-		_ = cmd.Wait()
-	}()
-
-	return nil
-}
-
-// ============================================================
-// 路径检测
-// ============================================================
-
-// hasExeExt 检查文件名是否以 .exe 结尾
-func hasExeExt(fileName string) bool {
-	return strings.HasSuffix(strings.ToLower(fileName), ".exe")
-}
-
-// getMCDirForRepair 获取修复工具使用的 MC 目录
-// 优先使用当前选中包专用的 MC 目录，回退到 _default
-func getMCDirForRepair(localCfg *model.LocalConfig, packName string) string {
-	if localCfg == nil {
-		return ""
-	}
-	// 先找包专用目录
-	if d, ok := localCfg.MinecraftDirs[packName]; ok && d != "" {
-		return d
-	}
-	// 再找 _default
-	if d, ok := localCfg.MinecraftDirs["_default"]; ok && d != "" {
-		return d
-	}
-	// 兼容旧字段
-	return localCfg.MinecraftDir
-}

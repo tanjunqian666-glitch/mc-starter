@@ -3,7 +3,6 @@ package gui
 import (
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/gege-tlph/mc-starter/internal/launcher"
 	"github.com/gege-tlph/mc-starter/internal/model"
@@ -17,11 +16,17 @@ type mcDirItem struct {
 	Path  string // 实际路径
 }
 
-// settingsPackMCInfo 副包关联的 MC 目录下拉状态
-type settingsPackMCInfo struct {
-	items    []mcDirItem
-	cb       *walk.ComboBox
-	dirLabel *walk.Label // 显示当前 MC 路径的标签
+// subPackUI 副版本 UI 控件集合
+type subPackUI struct {
+	packName   string
+	cb         *walk.CheckBox
+	mcRow      *walk.Composite
+	mcCB       *walk.ComboBox
+	dirLabel   *walk.Label
+	reloadBtn  *walk.PushButton
+
+	// MC 目录下拉数据
+	items  []mcDirItem
 }
 
 // showSettings 打开设置弹窗
@@ -29,19 +34,20 @@ func showSettings(a *App) {
 	var dlg *walk.Dialog
 	var acceptPB, cancelPB *walk.PushButton
 
-	serverURL := a.localCfg.ServerURL
-	launcherPath := a.localCfg.Launcher
+	localCfg := a.localCfg.Copy()
+
+	serverURL := localCfg.ServerURL
+	launcherPath := localCfg.Launcher
 
 	// 主 MC 目录
 	var mcDirItems []mcDirItem
 	var mcDirCB *walk.ComboBox
-	var mcDirPicked string // 选中值
+	var mcDirPicked string
 
-	// 副包 MC 目录状态
-	packMCInfo := make(map[string]*settingsPackMCInfo)
-	var pmu sync.Mutex
+	// 副版本 UI 控件（dialog Create 后初始化）
+	var subUIs []*subPackUI
 
-	// 刷新 MC 目录列表（通用）
+	// 刷新 MC 目录列表
 	refreshMCDirItems := func() []mcDirItem {
 		dirs := launcher.FindMinecraftDirs()
 		managed, raw := launcher.IsManagedDirs(dirs)
@@ -62,7 +68,6 @@ func showSettings(a *App) {
 				Path:  m.Path,
 			})
 		}
-
 		for _, r := range raw {
 			if seen[r] {
 				continue
@@ -73,7 +78,6 @@ func showSettings(a *App) {
 				Path:  r,
 			})
 		}
-
 		if len(items) == 0 {
 			items = append(items, mcDirItem{
 				Label: "(未检测到，请手动选择)",
@@ -90,10 +94,9 @@ func showSettings(a *App) {
 			labels[i] = item.Label
 		}
 		cb.SetModel(labels)
-		if cb.Model() == nil || len(items) == 0 {
+		if len(items) == 0 {
 			return ""
 		}
-		// 优先选中 preferPath
 		if preferPath != "" {
 			for i, item := range items {
 				if item.Path == preferPath {
@@ -102,7 +105,6 @@ func showSettings(a *App) {
 				}
 			}
 		}
-		// 否则选第一个
 		cb.SetCurrentIndex(0)
 		return items[0].Path
 	}
@@ -110,47 +112,42 @@ func showSettings(a *App) {
 	// 刷新主 MC 目录下拉
 	refreshMainMCDir := func() {
 		mcDirItems = refreshMCDirItems()
-		preferPath := a.localCfg.GetMinecraftDir("")
+		preferPath := localCfg.GetMinecraftDir("")
 		mcDirPicked = setupMCCB(mcDirCB, mcDirItems, preferPath)
 	}
 
 	// 刷新指定副包的 MC 目录下拉
-	refreshPackMCDir := func(packName string) {
-		pmu.Lock()
-		info := packMCInfo[packName]
-		pmu.Unlock()
-		if info == nil {
+	refreshSubMCDir := func(ui *subPackUI) {
+		if ui == nil || ui.mcCB == nil {
 			return
 		}
-
 		items := refreshMCDirItems()
-		info.items = make([]mcDirItem, len(items))
+		ui.items = make([]mcDirItem, len(items))
 		for i, item := range items {
-			info.items[i] = mcDirItem{Label: item.Label, Path: item.Path}
+			ui.items[i] = mcDirItem{Label: item.Label, Path: item.Path}
 		}
-
 		labels := make([]string, len(items))
 		for i, item := range items {
 			labels[i] = item.Label
 		}
-		info.cb.SetModel(labels)
+		ui.mcCB.SetModel(labels)
 
-		preferPath := a.localCfg.GetMinecraftDir(packName)
+		preferPath := localCfg.GetMinecraftDir(ui.packName)
 		if preferPath != "" {
 			for i, item := range items {
 				if item.Path == preferPath {
-					info.cb.SetCurrentIndex(i)
-					if info.dirLabel != nil {
-						info.dirLabel.SetText(fmt.Sprintf("MC 目录: %s", item.Path))
+					ui.mcCB.SetCurrentIndex(i)
+					if ui.dirLabel != nil {
+						ui.dirLabel.SetText(fmt.Sprintf("MC 目录: %s", item.Path))
 					}
 					return
 				}
 			}
 		}
 		if len(items) > 0 {
-			info.cb.SetCurrentIndex(0)
-			if info.dirLabel != nil && items[0].Path != "" {
-				info.dirLabel.SetText(fmt.Sprintf("MC 目录: %s", items[0].Path))
+			ui.mcCB.SetCurrentIndex(0)
+			if ui.dirLabel != nil && items[0].Path != "" {
+				ui.dirLabel.SetText(fmt.Sprintf("MC 目录: %s", items[0].Path))
 			}
 		}
 	}
@@ -161,7 +158,6 @@ func showSettings(a *App) {
 		fd.Title = "选择 Minecraft 根目录"
 		if ok, _ := fd.ShowBrowseFolder(owner); ok {
 			picked := fd.FilePath
-			// 检查是否已在列表
 			for i, item := range *items {
 				if item.Path == picked {
 					cb.SetCurrentIndex(i)
@@ -169,7 +165,6 @@ func showSettings(a *App) {
 					return
 				}
 			}
-			// 添加并选中
 			*items = append([]mcDirItem{{Label: picked + "  [手动添加]", Path: picked}}, *items...)
 			labels := make([]string, len(*items))
 			for i, item := range *items {
@@ -181,12 +176,21 @@ func showSettings(a *App) {
 		}
 	}
 
-	// 构建设置弹窗
+	// ============================================================
+	// 构建副版本 UI 声明
+	// ============================================================
+
+	subPackChildren := buildSubPackUI(a, localCfg, &subUIs, refreshMCDirItems, setupMCCB, pickDir, refreshSubMCDir)
+
+	// ============================================================
+	// Dialog 声明
+	// ============================================================
+
 	if err := (Dialog{
 		AssignTo:      &dlg,
 		Title:         "设置",
-		MinSize:       Size{500, 400},
-		Size:          Size{500, 400},
+		MinSize:       Size{500, 420},
+		Size:          Size{500, 420},
 		Layout:        VBox{Margins: Margins{10, 10, 10, 10}},
 		DefaultButton: &acceptPB,
 		CancelButton:  &cancelPB,
@@ -237,7 +241,7 @@ func showSettings(a *App) {
 			},
 			VSpacer{Size: 4},
 
-			// Minecraft 根目录（主版本）
+			// MC 根目录（主版本）
 			Composite{
 				Layout: VBox{},
 				Children: []Widget{
@@ -282,7 +286,7 @@ func showSettings(a *App) {
 				Layout: VBox{},
 				Children: []Widget{
 					Label{Text: "勾选启用/禁用副版本（独立的完整整合包）:", Font: Font{PointSize: 9}},
-					settingsPackList(a, dlg, packMCInfo, &pmu, refreshMCDirItems, setupMCCB, pickDir, refreshPackMCDir),
+					subPackChildren,
 				},
 			},
 
@@ -302,28 +306,30 @@ func showSettings(a *App) {
 
 							// 收集主版本 MC 目录
 							if mcDirPicked != "" {
-								a.localCfg.SetMinecraftDir("", mcDirPicked)
+								localCfg.SetMinecraftDir("", mcDirPicked)
 							}
 
-							// 收集副包 MC 目录
-							pmu.Lock()
-							for packName, info := range packMCInfo {
-								idx := info.cb.CurrentIndex()
-								if idx >= 0 && idx < len(info.items) && info.items[idx].Path != "" {
-									a.localCfg.SetMinecraftDir(packName, info.items[idx].Path)
+							// 收集副包 MC 目录（从下拉框读取）
+							for _, ui := range subUIs {
+								if ui.cb.Checked() {
+									idx := ui.mcCB.CurrentIndex()
+									if idx >= 0 && idx < len(ui.items) && ui.items[idx].Path != "" {
+										localCfg.SetMinecraftDir(ui.packName, ui.items[idx].Path)
+									}
 								}
 							}
-							pmu.Unlock()
 
-							a.Lock()
-							a.localCfg.Launcher = launcherPath
-							a.localCfg.ServerURL = serverURL
-							a.Unlock()
+							localCfg.Launcher = launcherPath
+							localCfg.ServerURL = serverURL
 
-							if err := a.cfg.SaveLocal(a.localCfg); err != nil {
+							if err := a.cfg.SaveLocal(localCfg); err != nil {
 								walk.MsgBox(dlg, "错误", fmt.Sprintf("保存配置失败: %v", err), walk.MsgBoxOK)
 								return
 							}
+
+							a.mu.Lock()
+							a.localCfg = localCfg
+							a.mu.Unlock()
 
 							go func() {
 								a.refreshServerPacks()
@@ -349,124 +355,151 @@ func showSettings(a *App) {
 		return
 	}
 
-	// 弹窗创建成功后，初始化 MC 目录下拉
+	// 弹窗创建后，初始化 MC 目录下拉
 	refreshMainMCDir()
+
+	// 初始化副版本下拉
+	for _, ui := range subUIs {
+		if ui.cb.Checked() {
+			refreshSubMCDir(ui)
+		}
+	}
 
 	dlg.Run()
 }
 
-// settingsPackList 返回副版本列表（含独立的 MC 目录下拉）
-func settingsPackList(a *App, dlg *walk.Dialog, packMCInfo map[string]*settingsPackMCInfo,
-	pmu *sync.Mutex,
+// buildSubPackUI 构建副版本 UI 控件数组（dialog Create 前调用）
+// 返回 Composite 的 Children，同时填充 subUIs 以便后续 SetModel
+func buildSubPackUI(a *App, localCfg *model.LocalConfig, subUIs *[]*subPackUI,
 	refreshItems func() []mcDirItem,
 	setupCB func(*walk.ComboBox, []mcDirItem, string) string,
 	pickDirFn func(walk.Form, *walk.ComboBox, *[]mcDirItem, *string),
-	refreshPack func(string),
+	refreshSub func(*subPackUI),
 ) Widget {
 
-	children := make([]Widget, 0, len(a.serverPacks)*3)
+	// 收集所有副版本
+	var subPacks []model.PackInfo
+	for _, p := range a.vm.ServerPacks() {
+		if !p.Primary {
+			subPacks = append(subPacks, p)
+		}
+	}
 
-	for _, p := range a.serverPacks {
-		p := p // capture
+	if len(subPacks) == 0 {
+		return Composite{
+			Layout: VBox{},
+			Children: []Widget{
+				Label{Text: "(无可用的副版本)", Font: Font{PointSize: 9}},
+			},
+		}
+	}
+
+	children := make([]Widget, 0, len(subPacks)*3)
+
+	for _, p := range subPacks {
+		p := p
 
 		checked := false
-		if a.localCfg != nil {
-			if s, ok := a.localCfg.Packs[p.Name]; ok {
+		if localCfg != nil {
+			if s, ok := localCfg.Packs[p.Name]; ok {
 				checked = s.Enabled
 			}
 		}
 
-		// 勾选框
-		cb := new(walk.CheckBox)
+		// 预构建 MC 目录数据
+		mcItems := refreshItems()
+
+		ui := &subPackUI{
+			packName: p.Name,
+			items:    make([]mcDirItem, len(mcItems)),
+		}
+		for i, item := range mcItems {
+			ui.items[i] = mcDirItem{Label: item.Label, Path: item.Path}
+		}
+		*subUIs = append(*subUIs, ui)
+
+		var cb *walk.CheckBox
+		var mcRow *walk.Composite
+		var dirCB *walk.ComboBox
+		var dirLabel *walk.Label
+		var reloadBtn *walk.PushButton
+
+		// 勾选框（toggle 副包 MC 目录行可见性）
 		children = append(children, CheckBox{
 			AssignTo: &cb,
 			Text:     fmt.Sprintf("%s (%s)", p.DisplayName, p.LatestVersion),
 			Checked:  checked,
 			OnCheckedChanged: func() {
-				if a.localCfg != nil {
-					a.Lock()
-					s, ok := a.localCfg.Packs[p.Name]
-					if !ok {
-						s = model.PackState{
-							Enabled: false,
-							Status:  "none",
-							Dir:     fmt.Sprintf("packs/%s", p.Name),
-						}
+				enabled := cb.Checked()
+
+				// 更新 localCfg
+				s, ok := localCfg.Packs[p.Name]
+				if !ok {
+					s = model.PackState{
+						Enabled: false,
+						Status:  "none",
+						Dir:     fmt.Sprintf("packs/%s", p.Name),
 					}
-					s.Enabled = cb.Checked()
-					a.localCfg.Packs[p.Name] = s
-					a.Unlock()
+				}
+				s.Enabled = enabled
+				localCfg.Packs[p.Name] = s
+
+				// 显示/隐藏 MC 目录行
+				if mcRow != nil {
+					mcRow.SetVisible(enabled)
+				}
+
+				// 勾选时自动刷新目录下拉
+				if enabled {
+					refreshSub(ui)
 				}
 			},
 		})
+		ui.cb = cb
 
-		// 启用状态下显示 MC 目录下拉
-		if checked {
-			info := &settingsPackMCInfo{}
-			pmu.Lock()
-			packMCInfo[p.Name] = info
-			pmu.Unlock()
-
-			var dirCB *walk.ComboBox
-			var dirLabel *walk.Label
-			info.cb = dirCB
-
-			items := refreshItems()
-			info.items = make([]mcDirItem, len(items))
-			for i, item := range items {
-				info.items[i] = mcDirItem{Label: item.Label, Path: item.Path}
-			}
-
-			preferPath := a.localCfg.GetMinecraftDir(p.Name)
-
-			children = append(children, Composite{
-				Layout: HBox{Margins: Margins{Left: 20}},
-				Children: []Widget{
-					Label{Text: fmt.Sprintf("  MC 目录 (副):"), Font: Font{PointSize: 9}},
-					ComboBox{
-						AssignTo: &dirCB,
-						MinSize:  Size{280, 0},
-						OnCurrentIndexChanged: func() {
-							idx := dirCB.CurrentIndex()
-							pmu.Lock()
-							info := packMCInfo[p.Name]
-							pmu.Unlock()
-							if info != nil && idx >= 0 && idx < len(info.items) {
-								if info.dirLabel != nil {
-									info.dirLabel.SetText(fmt.Sprintf("MC 目录: %s", info.items[idx].Path))
-								}
+		// MC 目录行（默认按 checked 显隐）
+		children = append(children, Composite{
+			AssignTo: &mcRow,
+			Layout:   HBox{Margins: Margins{Left: 20}},
+			Visible:  checked,
+			Children: []Widget{
+				Label{Text: "  MC 目录 (副):", Font: Font{PointSize: 9}},
+				ComboBox{
+					AssignTo: &dirCB,
+					MinSize:  Size{280, 0},
+					OnCurrentIndexChanged: func() {
+						idx := dirCB.CurrentIndex()
+						if idx >= 0 && idx < len(ui.items) {
+							if dirLabel != nil {
+								dirLabel.SetText(fmt.Sprintf("MC 目录: %s", ui.items[idx].Path))
 							}
-						},
-					},
-					PushButton{
-						Text:     "🔍",
-						MinSize:  Size{28, 0},
-						MaxSize:  Size{28, 0},
-						OnClicked: func() { refreshPack(p.Name) },
+						}
 					},
 				},
-			})
+				PushButton{
+					AssignTo: &reloadBtn,
+					Text:     "🔍",
+					MinSize:  Size{28, 0},
+					MaxSize:  Size{28, 0},
+					OnClicked: func() { refreshSub(ui) },
+				},
+			},
+		})
+		ui.mcRow = mcRow
+		ui.mcCB = dirCB
+		ui.reloadBtn = reloadBtn
 
-			// 路径标签
-			children = append(children, Label{
-				AssignTo: &dirLabel,
-				Text:     "",
-				Font:     Font{PointSize: 9},
-				TextColor: walk.RGB(100, 100, 100),
-			})
+		// MC 目录路径标签
+		children = append(children, Label{
+			AssignTo: &dirLabel,
+			Text:     "",
+			Font:     Font{PointSize: 9},
+			TextColor: walk.RGB(100, 100, 100),
+		})
+		ui.dirLabel = dirLabel
 
-			info.dirLabel = dirLabel
-			info.cb = dirCB
-
-			setupCB(dirCB, items, preferPath)
-			if preferPath != "" {
-				dirLabel.SetText(fmt.Sprintf("MC 目录: %s", preferPath))
-			}
-		}
-	}
-
-	if len(children) == 0 {
-		children = append(children, Label{Text: "(无可用的副版本)", Font: Font{PointSize: 9}})
+		// ComboBox 模型不在声明中设置（walk 在 Create 前设置 Model 会 panic）
+		// 在 create 后通过 Synchronize 设置
 	}
 
 	return Composite{

@@ -302,13 +302,17 @@ func (vm *ViewModel) packStatusLocked() PackStatus {
 	return s
 }
 
-// PackNames 下拉框显示名列表
+// PackNames 下拉框显示名列表（仅返回已启用的版本）
 func (vm *ViewModel) PackNames() []string {
 	vm.mu.RLock()
 	defer vm.mu.RUnlock()
 
 	names := make([]string, 0, len(vm.serverPacks))
 	for _, p := range vm.serverPacks {
+		// 副版本未启用时跳过
+		if !vm.isPackEnabledLocked(p.Name) {
+			continue
+		}
 		display := p.DisplayName
 		if vm.localCfg != nil {
 			if s, ok := vm.localCfg.Packs[p.Name]; ok && s.LocalVersion != "" {
@@ -321,6 +325,20 @@ func (vm *ViewModel) PackNames() []string {
 		names = append(names, "(无可用版本)")
 	}
 	return names
+}
+
+// ServerPacksFiltered 返回已启用的服务端版本列表
+func (vm *ViewModel) ServerPacksFiltered() []model.PackInfo {
+	vm.mu.RLock()
+	defer vm.mu.RUnlock()
+
+	out := make([]model.PackInfo, 0, len(vm.serverPacks))
+	for _, p := range vm.serverPacks {
+		if vm.isPackEnabledLocked(p.Name) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // VersionBarText 版本信息栏文本
@@ -491,6 +509,24 @@ func (vm *ViewModel) getDisplayNameLocked(packName string) string {
 		}
 	}
 	return packName
+}
+
+// isPackEnabledLocked 检查指定包是否已启用（调用方持读锁）
+func (vm *ViewModel) isPackEnabledLocked(packName string) bool {
+	if vm.localCfg == nil {
+		return true
+	}
+	s, ok := vm.localCfg.Packs[packName]
+	if !ok {
+		// 不在配置中的包：主版本视为启用，副版本视为未启用（未配置=未启用）
+		for _, p := range vm.serverPacks {
+			if p.Name == packName {
+				return p.Primary // 主版本默认启用
+			}
+		}
+		return false
+	}
+	return s.Enabled
 }
 
 func (vm *ViewModel) updatePackStateLocked() {

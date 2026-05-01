@@ -14,7 +14,9 @@ package gui
 
 import (
 	"fmt"
-	"time"
+	"os"
+	"os/exec"
+	"sync"
 
 	"github.com/gege-tlph/mc-starter/internal/config"
 	"github.com/gege-tlph/mc-starter/internal/model"
@@ -25,6 +27,8 @@ import (
 // App 全局 GUI 应用状态
 // 控件字段直接用 Walk 绑定，数据走 ViewModel，操作走 Orchestrator
 type App struct {
+	mu sync.Mutex // settings.go/setup.go 中 Lock/Unlock 使用
+
 	cfgDir string
 
 	// 三层（初始化后不可变）
@@ -262,12 +266,18 @@ func (a *App) eventLoop() {
 
 // refreshUI 刷新所有 Walk 控件状态
 func (a *App) refreshUI() {
+	// 确保当前选中的版本未被禁用
+	a.ensureValidSelection()
+
 	status := a.vm.CurrentPackStatus()
 
 	// 下拉列表
 	if a.packCB != nil {
 		names := a.vm.PackNames()
 		a.packCB.SetModel(names)
+
+		// 保持选中项一致
+		a.syncPackCBSelection()
 	}
 
 	// 版本状态栏
@@ -314,12 +324,61 @@ func (a *App) refreshUI() {
 // 版本选择
 // ============================================================
 
+// ensureValidSelection 确保当前选中版本未被禁用
+// 如果被禁用，自动选主版本或第一个可用版本
+func (a *App) ensureValidSelection() {
+	selected := a.vm.SelectedPack()
+	packs := a.vm.ServerPacks()
+
+	// 没选中任何版本
+	if selected == "" {
+		a.vm.DetermineInitialPack()
+		return
+	}
+
+	// 检查选中版本是否存在且未被禁用
+	valid := false
+	for _, p := range packs {
+		if p.Name == selected {
+			valid = true
+			break
+		}
+	}
+	if valid {
+		return
+	}
+
+	// 选中版本不可用（可能被禁用了），自动切换到主版本
+	a.vm.DetermineInitialPack()
+}
+
+// syncPackCBSelection 同步下拉框选中索引与 ViewModel 的 selectedPack
+func (a *App) syncPackCBSelection() {
+	if a.packCB == nil {
+		return
+	}
+	selected := a.vm.SelectedPack()
+	packs := a.vm.ServerPacksFiltered()
+	for i, p := range packs {
+		if p.Name == selected {
+			if a.packCB.CurrentIndex() != i {
+				a.packCB.SetCurrentIndex(i)
+			}
+			return
+		}
+	}
+	// 没找到对应项，选中第一个
+	if len(packs) > 0 {
+		a.packCB.SetCurrentIndex(0)
+	}
+}
+
 func (a *App) onPackSelected() {
 	if a.packCB == nil {
 		return
 	}
 	idx := a.packCB.CurrentIndex()
-	packs := a.vm.ServerPacks()
+	packs := a.vm.ServerPacksFiltered()
 	if idx < 0 || idx >= len(packs) {
 		return
 	}
@@ -368,6 +427,22 @@ func (a *App) openLauncher() {
 	if err := openLauncherExternal(localCfg.Launcher); err != nil {
 		walk.MsgBox(a.mw, "错误", fmt.Sprintf("启动启动器失败: %v", err), walk.MsgBoxOK)
 	}
+}
+
+// openLauncherExternal 启动外部启动器（不阻塞）
+func openLauncherExternal(launcherPath string) error {
+	if launcherPath == "" {
+		return fmt.Errorf("启动器路径为空")
+	}
+	if _, err := os.Stat(launcherPath); os.IsNotExist(err) {
+		return fmt.Errorf("启动器文件不存在: %s", launcherPath)
+	}
+	cmd := exec.Command(launcherPath)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("启动启动器失败: %v", err)
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 // ============================================================
