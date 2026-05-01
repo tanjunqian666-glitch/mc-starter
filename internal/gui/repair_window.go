@@ -211,6 +211,14 @@ func (rs *repairWindowState) startRepair(action repairAction) {
 
 	rs.refreshUI()
 
+	// 所有操作先弹窗确认，用用户能看懂的语言
+	confirmTitle, confirmText := getRepairConfirm(action)
+	result, dlgErr := walk.MsgBox(rs.dlg, confirmTitle, confirmText, walk.MsgBoxYesNo)
+	if dlgErr != nil || result != walk.DlgCmdYes {
+		rs.setDone()
+		return
+	}
+
 	localCfg := rs.vm.LocalConfig()
 	mcDir := localCfg.GetMinecraftDir(rs.vm.SelectedPack())
 	if mcDir == "" {
@@ -219,36 +227,31 @@ func (rs *repairWindowState) startRepair(action repairAction) {
 		return
 	}
 
-	// 崩溃日志不需要问备份
-	if action == actionCrashUpload {
+	// 非崩溃日志的操作，再问是否备份
+	if action != actionCrashUpload {
+		withBackup := true
+		backupResult, _ := walk.MsgBox(rs.dlg, "备份", "是否先备份当前用户数据（存档、截图等）？", walk.MsgBoxYesNo)
+		if backupResult == walk.DlgCmdNo {
+			withBackup = false
+		}
+
+		switch action {
+		case actionCleanAll:
+			rs.orc.DoRepairCleanAll(mcDir, withBackup)
+		case actionMCRepair:
+			rs.orc.DoRepairMC(mcDir, withBackup)
+		case actionModSync:
+			rs.orc.DoRepairModsSync(mcDir, withBackup)
+		}
+
+		rs.setProgress("正在执行...")
+		go rs.waitRepairDone()
+	} else {
+		// 崩溃日志直接上传
 		rs.setProgress("正在上传崩溃日志...")
 		rs.orc.DoCrashLogUpload(mcDir)
-		// 监听 EventBus 等完成
 		go rs.waitCrashUpload()
-		return
 	}
-
-	// 弹窗问是否备份
-	withBackup := true
-	result, dlgErr := walk.MsgBox(rs.dlg, "确认修复",
-		getRepairDesc(action, mcDir),
-		walk.MsgBoxYesNo)
-	if dlgErr == nil && result == walk.DlgCmdNo {
-		withBackup = false
-	}
-
-	rs.setProgress("正在执行...")
-
-	switch action {
-	case actionCleanAll:
-		rs.orc.DoRepairCleanAll(mcDir, withBackup)
-	case actionMCRepair:
-		rs.orc.DoRepairMC(mcDir, withBackup)
-	case actionModSync:
-		rs.orc.DoRepairModsSync(mcDir, withBackup)
-	}
-
-	go rs.waitRepairDone()
 }
 
 func (rs *repairWindowState) startRestore() {
@@ -262,6 +265,22 @@ func (rs *repairWindowState) startRestore() {
 		rs.mu.Unlock()
 		return
 	}
+
+	// 先弹窗确认
+	var backupDesc string
+	for _, b := range rs.backupItems {
+		if b.ID == rs.selectedBackupID {
+			timeStr := b.CreatedAt.Format("2006-01-02 15:04")
+			backupDesc = fmt.Sprintf("备份时间: %s\n文件数: %d\n", timeStr, b.FileCount)
+			break
+		}
+	}
+	confirmText := backupDesc + "\n恢复后将替换当前的 mods、config、存档等文件。\n确定恢复吗？"
+	confirmResult, confirmErr := walk.MsgBox(rs.dlg, "恢复备份", confirmText, walk.MsgBoxYesNo)
+	if confirmErr != nil || confirmResult != walk.DlgCmdYes {
+		return
+	}
+
 	backupID := rs.selectedBackupID
 	rs.busy = true
 	rs.mu.Unlock()
@@ -271,24 +290,35 @@ func (rs *repairWindowState) startRestore() {
 
 	localCfg := rs.vm.LocalConfig()
 	mcDir := localCfg.GetMinecraftDir(rs.vm.SelectedPack())
+	if mcDir == "" {
+		walk.MsgBox(rs.dlg, "错误", "未配置 Minecraft 目录", walk.MsgBoxOK)
+		rs.setDone()
+		return
+	}
 
 	rs.orc.DoRestoreBackup(mcDir, backupID)
 	go rs.waitRepairDone()
 }
 
-func getRepairDesc(action repairAction, mcDir string) string {
+func getRepairConfirm(action repairAction) (string, string) {
 	switch action {
 	case actionCleanAll:
-		desc := "执行全量修复将清理 mods、config、resourcepacks、shaderpacks 目录\n"
-		desc += "然后从服务端重新下载\n\n"
-		desc += "是否先备份当前用户数据（saves/screenshots 等）？"
-		return desc
+		return "确认全量修复",
+			"将清理模组、配置、资源包和光影，然后从服务器重新下载全部文件。\n\n" +
+				"会保留你的存档和截图，版本会自动更新到最新。\n\n确定执行吗？"
 	case actionMCRepair:
-		return "是否先备份当前用户数据，再重新安装 MC + Loader？"
+		return "确认 MC 修复",
+			"将重新安装 Minecraft 本体和模组加载器（Fabric），版本会自动更新到最新。\n\n" +
+				"模组文件不会变动。确定执行吗？"
 	case actionModSync:
-		return "是否先备份当前 mods 目录，再清空并重新下载？"
+		return "确认模组同步",
+			"将清空 mods 文件夹，从服务器拉取最新模组，版本会自动更新到最新。\n\n" +
+				"确定执行吗？"
+	case actionCrashUpload:
+		return "确认上传",
+			"将收集最近的崩溃报告并上传到服务器，方便排查问题。\n\n确定执行吗？"
 	default:
-		return ""
+		return "确认", "确定执行这个操作吗？"
 	}
 }
 

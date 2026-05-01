@@ -253,14 +253,101 @@ func (o *Orchestrator) doUpdate(packName, serverURL, mcDir string, localCfg *mod
 // 修复
 // ============================================================
 
-// DoRepairCleanAll 全量修复：备份 → 清理 mods/config/resourcepacks/shaders → 提示用户点安装
-// 异步执行，通过 EventBus 报告进度
+// DoRepairCleanAll 全量修复：备份 → 清理 → 全量拉取最新模组 + 更新版本号到最新
+// 用户不用再回主界面点安装，一次完成
 func (o *Orchestrator) DoRepairCleanAll(mcDir string, withBackup bool) {
 	o.vm.state.Transition(StateRepairing)
-	go o.doRepair(mcDir, repair.RepairConfig{Action: repair.ActionCleanAll}, withBackup)
+
+	go func() {
+		packName := o.vm.SelectedPack()
+		if packName == "" {
+			o.eb.EmitError("全量修复", "未选中版本", nil)
+			o.vm.MarkIdle()
+			return
+		}
+
+		localCfg := o.vm.LocalConfig()
+		serverURL := localCfg.ServerURL
+		if serverURL == "" {
+			o.eb.EmitError("全量修复", "未配置服务端地址", nil)
+			o.vm.MarkIdle()
+			return
+		}
+
+		// 1. 备份
+		if withBackup {
+			o.eb.EmitProgress(5, "正在备份用户数据...")
+			backupResult, err := repair.CreateBackup(mcDir, repair.BackupOptions{Reason: repair.ReasonRepair})
+			if err != nil {
+				o.eb.EmitLog("warn", fmt.Sprintf("备份失败（继续执行修复）: %v", err))
+			} else {
+				o.eb.EmitLog("info", fmt.Sprintf("备份完成: %s (%d 文件)", backupResult.BackupDir, backupResult.FileCount))
+			}
+		}
+
+		// 2. 清理
+		o.eb.EmitProgress(20, "正在清理...")
+		repairResult, err := repair.Repair(mcDir, repair.RepairConfig{Action: repair.ActionCleanAll})
+		if err != nil {
+			o.eb.EmitError("全量修复", fmt.Sprintf("清理失败: %v", err), err)
+			o.vm.MarkIdle()
+			return
+		}
+		o.eb.EmitLog("info", fmt.Sprintf("已清理: %s", strings.Join(repairResult.CleanedDirs, ", ")))
+
+		// 3. 获取最新版本信息
+		o.eb.EmitProgress(40, "正在获取版本信息...")
+		packState, _ := localCfg.Packs[packName]
+		update, err := o.cfg.FetchUpdate(serverURL, packName, "", nil)
+		if err != nil {
+			o.eb.EmitError("全量修复", fmt.Sprintf("获取版本信息失败: %v", err), err)
+			o.vm.MarkIdle()
+			return
+		}
+
+		updater := launcher.NewUpdater(o.cfgDir, mcDir, o.cfg)
+		mcVersion := update.MCVersion
+		loaderSpec := update.Loader
+		if mcVersion != "" {
+			o.eb.EmitProgress(50, "正在安装 MC...")
+			versionDir := filepath.Join(mcDir, "versions")
+			libraryDir := filepath.Join(mcDir, "libraries")
+			_, _ = updater.EnsureVersion(launcher.EnsureRequest{
+				MCVersion:  mcVersion,
+				Loader:     loaderSpec,
+				VersionDir: versionDir,
+				LibraryDir: libraryDir,
+			})
+		}
+
+		// 4. 全量拉取最新模组
+		o.eb.EmitProgress(60, "正在下载模组文件...")
+		result, err := updater.UpdatePack(serverURL, packName, &packState, true)
+		if err != nil {
+			o.eb.EmitError("全量修复", fmt.Sprintf("下载模组文件失败: %v", err), err)
+			o.vm.MarkIdle()
+			return
+		}
+
+		// 5. 更新版本号到最新
+		newVersion := result.Version
+		o.vm.MarkSyncDone(newVersion)
+		localCfg.Packs[packName] = model.PackState{
+			Enabled:      true,
+			Status:       "synced",
+			LocalVersion: newVersion,
+			Dir:          fmt.Sprintf("packs/%s", packName),
+		}
+		_ = o.cfg.SaveLocal(localCfg)
+
+		o.eb.EmitProgress(100, "完成")
+		o.eb.EmitLog("info", fmt.Sprintf("全量修复完成 → %s %s", packName, newVersion))
+		o.vm.MarkIdle()
+	}()
 }
 
-// DoRepairMC 修复 MC 本体：重新安装 MC + Loader
+// DoRepairMC 修复 MC 本体：重新安装最新 MC + Loader
+// 模组文件不动，版本号不更新
 func (o *Orchestrator) DoRepairMC(mcDir string, withBackup bool) {
 	o.vm.state.Transition(StateRepairing)
 
@@ -295,49 +382,51 @@ func (o *Orchestrator) DoRepairMC(mcDir string, withBackup bool) {
 		o.eb.EmitProgress(20, "正在获取版本信息...")
 
 		packState, _ := localCfg.Packs[packName]
-		update, err := o.cfg.FetchUpdate(serverURL, packName, packState.LocalVersion, nil)
+
+		// 用空版本号查最新版信息
+		update, err := o.cfg.FetchUpdate(serverURL, packName, "", nil)
 		if err != nil {
-			o.eb.EmitError("修复", fmt.Sprintf("获取版本信息失败: %v", err), err)
+			o.eb.EmitError("MC 修复", fmt.Sprintf("获取最新版本信息失败: %v", err), err)
 			o.vm.MarkIdle()
 			return
 		}
+		_ = packState
 
-		mcVersion := update.MCVersion
-		loaderSpec := update.Loader
-		if mcVersion == "" {
-			o.eb.EmitError("修复", "服务端未返回 MC 版本信息", nil)
-			o.vm.MarkIdle()
-			return
-		}
-
-		// 重新安装 MC + Loader
-		o.eb.EmitProgress(40, "正在重新安装 MC...")
+		// 重新安装最新 MC + Loader（不管旧版本，直接装最新）
+		o.eb.EmitProgress(40, "正在重新安装最新版 MC...")
 		versionDir := filepath.Join(mcDir, "versions")
 		libraryDir := filepath.Join(mcDir, "libraries")
 
 		updater := launcher.NewUpdater(o.cfgDir, mcDir, o.cfg)
-		ensureReq := launcher.EnsureRequest{
+		mcVersion := update.MCVersion
+		loaderSpec := update.Loader
+		if mcVersion == "" {
+			o.eb.EmitError("MC 修复", "服务端未返回 MC 版本信息", nil)
+			o.vm.MarkIdle()
+			return
+		}
+		o.eb.EmitLog("info", fmt.Sprintf("将安装最新 MC %s%s", mcVersion,
+			map[bool]string{true: " + " + loaderSpec, false: ""}[loaderSpec != ""]))
+
+		ensureResult, err := updater.EnsureVersion(launcher.EnsureRequest{
 			MCVersion:  mcVersion,
 			Loader:     loaderSpec,
 			VersionDir: versionDir,
 			LibraryDir: libraryDir,
-		}
-
-		ensureResult, err := updater.EnsureVersion(ensureReq)
+		})
 		if err != nil {
-			o.eb.EmitError("修复", fmt.Sprintf("MC 修复失败: %v", err), err)
+			o.eb.EmitError("MC 修复", fmt.Sprintf("MC 修复失败: %v", err), err)
 			o.vm.MarkIdle()
 			return
 		}
 
-		o.eb.EmitProgress(90, "完成")
-		o.eb.EmitLog("info", fmt.Sprintf("MC 修复完成: 版本ID=%s", ensureResult.VersionID))
 		o.eb.EmitProgress(100, "MC 本体修复完成")
+		o.eb.EmitLog("info", fmt.Sprintf("MC 修复完成: 版本ID=%s（模组文件不变）", ensureResult.VersionID))
 		o.vm.MarkIdle()
 	}()
 }
 
-// DoRepairModsSync 模组同步：清空 mods/ → 全量拉取
+// DoRepairModsSync 模组同步：清空 mods/ → 全量拉取最新版 → 更新版本号到最新
 func (o *Orchestrator) DoRepairModsSync(mcDir string, withBackup bool) {
 	o.vm.state.Transition(StateRepairing)
 
@@ -359,20 +448,22 @@ func (o *Orchestrator) DoRepairModsSync(mcDir string, withBackup bool) {
 
 		// 备份
 		if withBackup {
-			o.eb.EmitProgress(0, "正在备份...")
+			o.eb.EmitProgress(5, "正在备份 mods 目录...")
 			_, err := repair.CreateBackup(mcDir, repair.BackupOptions{Reason: repair.ReasonRepair})
 			if err != nil {
-				o.eb.EmitLog("warn", fmt.Sprintf("备份失败: %v", err))
+				o.eb.EmitLog("warn", fmt.Sprintf("备份失败（继续执行同步）: %v", err))
+			} else {
+				o.eb.EmitLog("info", "备份完成")
 			}
 		}
 
 		// 清理 mods/
-		o.eb.EmitProgress(10, "正在清理 mods 目录...")
+		o.eb.EmitProgress(15, "正在清理 mods 目录...")
 		modsDir := filepath.Join(mcDir, "mods")
-		removeContents(modsDir)
+		_ = removeContents(modsDir)
 
-		// 全量拉取
-		o.eb.EmitProgress(30, "正在拉取模组...")
+		// 全量拉取最新
+		o.eb.EmitProgress(30, "正在拉取最新模组...")
 		updater := launcher.NewUpdater(o.cfgDir, mcDir, o.cfg)
 		packState, _ := localCfg.Packs[packName]
 
@@ -383,8 +474,19 @@ func (o *Orchestrator) DoRepairModsSync(mcDir string, withBackup bool) {
 			return
 		}
 
+		// 更新版本号到最新
+		newVersion := result.Version
+		localCfg.Packs[packName] = model.PackState{
+			Enabled:      true,
+			Status:       "synced",
+			LocalVersion: newVersion,
+			Dir:          fmt.Sprintf("packs/%s", packName),
+		}
+		_ = o.cfg.SaveLocal(localCfg)
+		o.vm.MarkSyncDone(newVersion)
+
 		o.eb.EmitProgress(100, "模组同步完成")
-		o.eb.EmitLog("info", fmt.Sprintf("模组同步完成: %s", result.Summary()))
+		o.eb.EmitLog("info", fmt.Sprintf("模组同步完成 → %s %s", packName, newVersion))
 		o.vm.MarkIdle()
 	}()
 }
