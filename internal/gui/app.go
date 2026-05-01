@@ -82,11 +82,9 @@ func Run(cfgDir string) error {
 	vm.DetermineInitialPack()
 	app.refreshUI()
 
-	// 5. 首次启动向导
+	// 5. 首次启动向导（注意：mw.Run() 还没调，不要在 Synchronize 里包裹）
 	if isFirstRun {
-		app.mw.Synchronize(func() {
-			runSetupWizard(app)
-		})
+		runSetupWizard(app)
 	}
 
 	// 6. 启动 EventBus 事件循环（驱动 UI 刷新）
