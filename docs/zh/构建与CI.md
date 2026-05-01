@@ -28,6 +28,9 @@ GUI 版本（starter-gui.exe）使用 `github.com/lxn/walk`，需要：
 3. **编译步骤**
    ```powershell
    # 1. 生成 syso（manifest 嵌入）
+   #    ⚠ 重要：syso 文件（internal\gui\gui_windows_amd64.syso）必须提交到仓库
+   #    如果缺失，GUI 双击将因 comctl32 v5 不兼容而静默崩溃（一闪而过）
+   #    排查：编译 console 版（不加 -H windowsgui）运行，看 TTM_ADDTOOL failed panic
    rsrc -manifest internal\gui\gui.manifest -o internal\gui\gui_windows_amd64.syso -arch amd64
 
    # 2. 编译 CLI

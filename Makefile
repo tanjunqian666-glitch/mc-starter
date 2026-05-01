@@ -102,8 +102,11 @@ winvm-build:
 	$(WIN_EXEC) --sync "go build -o starter.exe ./cmd/starter/"
 
 # 编译 GUI 二进制（walk + windowsgui）
+# ⚠ 必须先确保 internal/gui/gui_windows_amd64.syso 存在
+# 如果缺失，可在 Windows VM 上运行：
+#   rsrc -manifest internal/gui/gui.manifest -o internal/gui/gui_windows_amd64.syso -arch amd64
 winvm-build-gui:
-	$(WIN_EXEC) --sync "go build -o starter-gui.exe -ldflags=\"-H windowsgui\" ./cmd/starter/"
+	$(WIN_EXEC) --sync "rsrc -manifest internal/gui/gui.manifest -o internal/gui/gui_windows_amd64.syso -arch amd64 && go build -o starter-gui.exe -ldflags=\"-H windowsgui\" ./cmd/starter/"
 
 # 编译 + vet + 测试（完整检查）
 winvm-check:

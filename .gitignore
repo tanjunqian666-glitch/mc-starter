@@ -15,6 +15,10 @@ build/
 .DS_Store
 Thumbs.db
 
+# ⚠ 不拦 *.syso — walk GUI 依赖此文件嵌入 comctl32 v6 manifest
+# 如果缺失，-H windowsgui 构建的程序将静默崩溃（TTM_ADDTOOL panic）
+# *.syso
+
 # IDE
 .idea/
 .vscode/
