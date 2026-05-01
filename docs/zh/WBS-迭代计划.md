@@ -410,6 +410,17 @@ G.14-G.20 ✅ (端到端测试 ✅ 2026-05-02)
 | PCL 重复搜索 | 每次 `refreshMCDirItems` 都全量搜 | 加 `mcDirCache` 缓存 |
 | 已保存路径不显示 | 扫描结果无此路径时只显示"未检测到" | 自动追加为 `[已保存]` |
 
+### 代码清理（同批次）
+
+| 清理项 | 影响 |
+|--------|------|
+| 删 `App.cfg`/`App.localCfg` → 走 `a.vm` | 消除冗余字段，`config.New` 从 3 次减到 1 次 |
+| 删 `buildSubPackUI(pickDirFn)` 参数 | 死参数，从未使用 |
+| 删 `Orchestrator.SaveConfig()`/`ReloadPacks()` | 无调用者 |
+| 删 `App.mu sync.Mutex` | 字段无使用 |
+| 删 `app.go` stale imports (config, model) | 移走后不再依赖 |
+| `Orchestrator.cfg` 从 `vm.ConfigManager()` 获取 | 共享实例，不再 `config.New` 第二次 |
+
 ## 七、服务端 API 设计草案（P0x 先行）
 
 ### REST API 概览
