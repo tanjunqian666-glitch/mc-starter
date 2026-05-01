@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"sync"
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
@@ -25,8 +24,6 @@ import (
 // App 全局 GUI 应用状态
 // 控件字段直接用 Walk 绑定，数据走 ViewModel，操作走 Orchestrator
 type App struct {
-	mu sync.Mutex // settings.go/setup.go 中 Lock/Unlock 使用
-
 	cfgDir string
 
 	// 三层（初始化后不可变）

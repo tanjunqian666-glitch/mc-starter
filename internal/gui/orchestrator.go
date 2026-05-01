@@ -59,7 +59,7 @@ func NewOrchestrator(cfgDir string, vm *ViewModel, eb *EventBus) *Orchestrator {
 		cfgDir:   cfgDir,
 		vm:       vm,
 		eb:       eb,
-		cfg:      config.New(cfgDir),
+		cfg:      vm.ConfigManager(),
 		cancelCh: make(chan struct{}),
 	}
 }

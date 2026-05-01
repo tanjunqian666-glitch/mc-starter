@@ -127,6 +127,11 @@ func (vm *ViewModel) LocalConfig() *model.LocalConfig {
 	return vm.localCfg.Copy()
 }
 
+// ConfigManager 返回内部配置管理器（共享实例）
+func (vm *ViewModel) ConfigManager() *config.Manager {
+	return vm.cfg
+}
+
 // SaveLocalConfig 保存本地配置并更新内部引用
 func (vm *ViewModel) SaveLocalConfig(localCfg *model.LocalConfig) error {
 	if err := vm.cfg.SaveLocal(localCfg); err != nil {
