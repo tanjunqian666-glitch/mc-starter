@@ -77,6 +77,13 @@ func main() {
 
 	if len(args) < 2 {
 		// 无参数: 双击场景 → 启动 GUI
+		// 兜底：GUI panic 写日志到桌面方便调试
+		defer func() {
+			if r := recover(); r != nil {
+				desktop := filepath.Join(os.Getenv("USERPROFILE"), "Desktop", "starter-crash.log")
+				os.WriteFile(desktop, []byte(fmt.Sprintf("starter GUI panic: %v\n", r)), 0644)
+			}
+		}()
 		if err := gui.Run(cfgDir); err != nil {
 			fmt.Fprintf(os.Stderr, "GUI 错误: %v\n", err)
 			os.Exit(1)
