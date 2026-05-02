@@ -1,6 +1,9 @@
 # GUI 设计与重构
 
-> 2026-05-01 · v3（最终版）· 整合 UI 设计 + 重构计划 + WBS
+> 2026-05-02 · v4 · 整合 UI 设计 + 重构计划 + WBS
+>
+> **变更说明**: v4 将修复工具窗口、崩溃日志上传、备份恢复标记为"后续迭代"（v1 暂不包含），
+> 主窗口移除 🔧 修复按钮。详见 §十四「后续迭代计划」。
 
 ---
 
@@ -23,11 +26,11 @@ mc-starter 的 GUI 定位是 **小工具**，不是大应用：
 │                                            │
 │  版本: [主整合包 v1.2.0   ▼]              │
 │                                            │
-│  ┌──────────────┐ ┌──────────┐ ┌─────────┐│
-│  │ 📥 安装      │ │ 🔧 修复  │ │ 📂 打开  ││
-│  │ 🔄 更新      │ │          │ │ 启动器  ││
-│  │ ✅ 已最新    │ │          │ │         ││
-│  └──────────────┘ └──────────┘ └─────────┘│
+│  ┌──────────────┐ ┌──────────────────────┐│
+│  │ 📥 安装      │ │ 📂 打开启动器       ││
+│  │ 🔄 更新      │ │                      ││
+│  │ ✅ 已最新    │ │                      ││
+│  └──────────────┘ └──────────────────────┘│
 │                                            │
 │  当前版本: v1.2.0    最新版本: v1.3.0       │
 │  有可用更新                                │
@@ -48,7 +51,6 @@ mc-starter 的 GUI 定位是 **小工具**，不是大应用：
 | ⚙ | 打开设置弹窗 |
 | 版本下拉 | 显示可用的版本列表，切换时更新下方状态 |
 | 安装/更新/已最新 | 文案随状态变，详见按钮状态规则 |
-| 🔧 修复 | 打开修复工具窗口，始终可用 |
 | 📂 打开启动器 | 需已安装且配置了启动器路径 |
 | 版本信息栏 | 格式：`当前版本: x  最新版本: y` |
 | 状态文字 | 就绪/有可用更新/已是最新/正在同步... |
@@ -72,12 +74,18 @@ mc-starter 的 GUI 定位是 **小工具**，不是大应用：
 同步中         → "正在检查版本..." / "正在下载文件..." / "正在安装加载器..."（橙色）
 同步取消       → "已取消"（橙色）
 同步出错       → "更新失败: xxx"（红色）
-修复中         → "正在修复..."（橙色）
 ```
 
 ---
 
-## 三、修复工具窗口
+## 三、修复工具窗口（延后至后续迭代）
+
+> ⏳ 本节（修复窗口 UI、修复流程、崩溃日志上传、备份恢复）计划在 v2 中实现。
+> 当前 v1 仅提供安装/更新/版本切换功能。
+
+### 设计参考（v2 实施时用）
+
+修复工具窗口设计如下：
 
 ```
 ┌─────── 修复工具 ─────────────────────────┐
@@ -135,6 +143,9 @@ mc-starter 的 GUI 定位是 **小工具**，不是大应用：
 | 📤 上传崩溃日志 | 扫描 .minecraft/crash-reports/ → 调用 `repair.CollectAndUpload()` | `internal/repair/upload.go` | ✅ 可用 |
 | 🔄 恢复选中备份 | 下拉框选中旧备份 → 点此按钮触发 `repair.Repair(mcDir, ActionRollback, backupID)` | `internal/repair/repair.go` rollback() | ✅ 可用 |
 
+> ⏳ 以上表格中的所有功能代码已写就，相应的 GUI 入口（`repair_window.go`）也已完成，
+> 但**主窗口的 🔧 入口按钮和修复工具的 GUI 调用暂未暴露给用户**，计划在 v2 中激活。
+
 ---
 
 ## 四、设置窗口
@@ -143,7 +154,7 @@ mc-starter 的 GUI 定位是 **小工具**，不是大应用：
 ┌─────── 设置 ─────────────────────────┐
 │                                        │
 │  设置                                  │
-│                                        │
+│                                        │  
 │  服务器 API:                           │
 │  [https://mc.example.com/api      ]   │
 │                                        │
@@ -214,7 +225,10 @@ mc-starter 的 GUI 定位是 **小工具**，不是大应用：
         └─→ 保存版本 → 刷新 UI → 按钮变「✅ 已最新」
 ```
 
-### 6.3 修复流程
+### 6.3 修复流程（延后至 v2）
+
+> ⏳ 当前 v1 暂不提供修复入口。以下流程设计已写好代码（`repair_window.go` + orchestrator 对接），
+> 待 v2 在主窗口添加 🔧 按钮后激活。
 
 ```
 用户发现游戏异常
@@ -357,11 +371,11 @@ Idle ──→ Checking ──→ Downloading ──→ Installing ──→ Don
 |----|------|------|---------|---------|------|
 | G.6 | startSync 改调 UpdatePack+EnsureVersion | G.5 | `orchestrator.go` | 2h | ✅ (已含在 G.4 UpdateOrInstall) |
 | G.7 | 安装/更新按钮文案动态切换 | G.6 | `viewmodel.go`, `app.go` | 1h | ✅ (ViewModel.PackStatus 自动) |
-| G.8 | 修复工具窗口（4 选项+互斥+进度+备份恢复） | G.5 | `internal/gui/repair_window.go` | 3h | ✅ |
-| G.9 | 修复选项对接 repair.Repair | G.8 | `orchestrator.go` | 2h | ✅ |
-| G.10 | 修复选项对接 EnsureVersion | G.8 | `orchestrator.go` | 1h | ✅ |
-| G.11 | 修复选项对接 UpdatePack(forceFull) | G.8 | `orchestrator.go` | 1h | ✅ |
-| G.12 | 崩溃日志上传入口 | G.8 | `orchestrator.go` | 1h | ✅ |
+| G.8 | 修复工具窗口（4 选项+互斥+进度+备份恢复） | G.5 | `internal/gui/repair_window.go` | 3h | ✅ 代码就绪，主入口延至 v2 |
+| G.9 | 修复选项对接 repair.Repair | G.8 | `orchestrator.go` | 2h | ✅ 代码就绪，延至 v2 |
+| G.10 | 修复选项对接 EnsureVersion | G.8 | `orchestrator.go` | 1h | ✅ 代码就绪，延至 v2 |
+| G.11 | 修复选项对接 UpdatePack(forceFull) | G.8 | `orchestrator.go` | 1h | ✅ 代码就绪，延至 v2 |
+| G.12 | 崩溃日志上传入口 | G.8 | `orchestrator.go` | 1h | ✅ 代码就绪，延至 v2 |
 | G.13 | 进度条对接 EventBus | G.6 | `viewmodel.go` | 1h | ✅ |
 
 ### 阶段 3：多版本切换 + 副版本
@@ -379,13 +393,13 @@ Idle ──→ Checking ──→ Downloading ──→ Installing ──→ Don
 | G.17 | 更新结果弹窗 | G.6 | `orchestrator.go` | 0.5h | ✅ (EventBus SyncDone) |
 | G.18 | 取消同步/回滚 | G.6 | `orchestrator.go` | 1h | ✅ (Orchestrator.Cancel) |
 | G.19 | 错误处理和重试 | G.6 | `orchestrator.go` | 1h | ✅ (EventBus Error 事件) |
-| G.20 | Windows VM 端到端测试 | 全部 | — | 2h | ⬜ |
+| G.20 | 端到端验收 + 文档更新 | 全部 | — | 2h | ⬜（延迟至 stash 中 BUG 修复后） |
 
 ### 总计：~24h
 
 ---
 
-## 九、不做的事
+## 九、不做的事（v1 范围）
 
 - ❌ CLI 子进程调用（`exec.Command`）——没意义
 - ❌ 拆 Service 包（`update/`, `sync/`, `repair/`）——代码规模不需要
@@ -434,4 +448,22 @@ internal/gui/
 
 ---
 
-*文档生成：2026-05-01 · v3 最终版 · 整合 UI 设计 + 重构计划 + WBS*
+## 十四、后续迭代（v2 计划）
+
+以下功能代码已就绪但暂不暴露给用户，计划在 v2 中激活：
+
+| 功能 | 当前状态 | 激活方式 |
+|------|---------|---------|
+| 🔧 **修复工具入口按钮** | 主窗口无该按钮 | 在 `app.go` 操作按钮行添加 PushButton，回调 `showRepairWindow(a)` |
+| **全量修复** | `repair_window.go` + orchestrator 就绪 | 通过修复窗口调用 |
+| **MC 本体修复** | `orchestrator.go` EnsureVersion 就绪 | 通过修复窗口调用 |
+| **模组同步** | `orchestrator.go` UpdatePack(forceFull) 就绪 | 通过修复窗口调用 |
+| **崩溃日志上传** | `orchestrator.go` CollectAndUpload 就绪 | 通过修复窗口调用 |
+| **备份恢复** | `repair_window.go` 下拉框+恢复按钮就绪 | 通过修复窗口调用 |
+| **进度条撑大窗口 BUG** | walk layout 已知限制 | 需 walk layout workaround |
+| **安装按钮无响应 BUG** | `CanSync()` 状态检测不一致 | 需修复 `packStatusLocked()` |
+| **安装完成不刷新 UI** | `EvtSyncDone` 处理顺序需调整 | 先 `RefreshState()` 再 `refreshUI()` |
+
+---
+
+*文档生成：2026-05-02 · v4 · v1 交付，修复/备份/崩溃检测延至 v2*
