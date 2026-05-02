@@ -7,6 +7,9 @@ package gui
 
 // ============================================================
 // 状态定义
+//
+// 注意：StateRepairing 被保留在 v2 包中使用（internal/v2/gui/）
+// 如果 Go 编译器报 unused，可安全删除它，v2 包中有独立副本
 // ============================================================
 
 // AppState GUI 应用状态
@@ -20,7 +23,7 @@ const (
 	StateDone             // 完成
 	StateError            // 出错
 	StateCancelled        // 用户取消
-	StateRepairing        // 修复中
+	_                     // StateRepairing 已移至 v2 包
 )
 
 // String 返回状态的可读名称，用于 UI 显示
@@ -40,8 +43,6 @@ func (s AppState) String() string {
 		return "出错"
 	case StateCancelled:
 		return "已取消"
-	case StateRepairing:
-		return "正在修复..."
 	default:
 		return "未知"
 	}
@@ -57,7 +58,7 @@ func (s AppState) String() string {
 //    │
 //    └────→ Cancelled
 //
-//                     Idle ──→ Repairing ──→ Done
+//                     Idle ──→ Checking ──→ Downloading ──→ Installing ──→ Done
 //                       │                    │
 //                       └────→ Error ←───────┘
 //                       │
@@ -68,7 +69,6 @@ func (s AppState) String() string {
 var validTransitions = map[AppState]map[AppState]bool{
 	StateIdle: {
 		StateChecking:  true,
-		StateRepairing: true,
 		StateError:     true,
 		StateCancelled: true,
 	},
@@ -97,11 +97,7 @@ var validTransitions = map[AppState]map[AppState]bool{
 	StateCancelled: {
 		StateIdle: true,   // 取消后允许重试
 	},
-	StateRepairing: {
-		StateDone:  true,
-		StateError: true,
-		StateCancelled: true,
-	},
+	// StateRepairing 转换规则已移至 v2 包
 }
 
 // ============================================================

@@ -286,10 +286,6 @@ func TestStateMachine_Transition(t *testing.T) {
 		{StateCancelled, StateIdle, true},
 		{StateDone, StateError, true},
 		{StateDone, StateIdle, true},
-		{StateIdle, StateRepairing, true},
-		{StateRepairing, StateDone, true},
-		{StateRepairing, StateError, true},
-		{StateRepairing, StateCancelled, true},
 	}
 
 	for _, tt := range tests {
@@ -394,7 +390,6 @@ func TestStateMachine_String(t *testing.T) {
 		{StateDone, "完成"},
 		{StateError, "出错"},
 		{StateCancelled, "已取消"},
-		{StateRepairing, "正在修复..."},
 	}
 
 	for _, tt := range tests {
