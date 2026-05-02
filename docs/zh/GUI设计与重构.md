@@ -459,10 +459,15 @@ internal/gui/
 | **MC 本体修复** | `orchestrator.go` EnsureVersion 就绪 | 通过修复窗口调用 |
 | **模组同步** | `orchestrator.go` UpdatePack(forceFull) 就绪 | 通过修复窗口调用 |
 | **崩溃日志上传** | `orchestrator.go` CollectAndUpload 就绪 | 通过修复窗口调用 |
-| **备份恢复** | `repair_window.go` 下拉框+恢复按钮就绪 | 通过修复窗口调用 |
+| **备份恢复 GUI** | `repair_window.go` 下拉框+恢复按钮就绪 | 通过修复窗口调用 |
+| **崩溃检测 + 静默守护** | `internal/monitor/` 逻辑就绪 | 需要后台 service 层+ GUI 事件通知 |
 | **进度条撑大窗口 BUG** | walk layout 已知限制 | 需 walk layout workaround |
 | **安装按钮无响应 BUG** | `CanSync()` 状态检测不一致 | 需修复 `packStatusLocked()` |
 | **安装完成不刷新 UI** | `EvtSyncDone` 处理顺序需调整 | 先 `RefreshState()` 再 `refreshUI()` |
+
+> **仓库/缓存层保持不变**：本地版本仓库（`repo.go`）、增量同步（`incr_sync.go`）、快照回滚等
+> 下载优化逻辑不受 v2 范围影响，持续保留。`repair.CreateBackup()` 等底层备份函数也保留，
+> 只是备用户交互入口延迟到 v2。
 
 ---
 
